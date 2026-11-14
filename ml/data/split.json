@@ -1,0 +1,15 @@
+{
+ "train": [
+  "HPPrinter_705a0fe49bc0.pcap",
+  "NestDropCam_308cfb2fe4b2.pcap",
+  "TPLinkCamera_f4f26D9351f1.pcap"
+ ],
+ "val": [
+  "BelkinWemoMotionSensor_ec1a59832811.pcap",
+  "SamsungSmartThings_d052a800675e.pcap"
+ ],
+ "test": [
+  "AmazonEcho_44650d56ccd3.pcap",
+  "SamsungCamera_00166cab6b88.pcap"
+ ]
+}
