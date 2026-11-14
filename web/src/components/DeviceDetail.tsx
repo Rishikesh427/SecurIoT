@@ -1,5 +1,7 @@
-import { useEffect, type ReactNode } from "react";
-import { bandLabel, bytes, clock, confidenceLabel, describeEvidence, eventMeta, isContained, parseReason, severityDot } from "../lib/format";
+import { useEffect, useState, type ReactNode } from "react";
+import { ChevronDown } from "lucide-react";
+import { bandLabel, bytes, clock, confidenceLabel, eventMeta, isContained, severityDot } from "../lib/format";
+import { plainEvent, plainReason } from "../lib/plain";
 import { cleanupSteps, deviceSummary, isIncident, summarize } from "../lib/incident";
 import type { ActionName, DashDevice, SecurEvent } from "../types";
 import { Button, Card, RiskRing, Status, Tag } from "./ui";
@@ -33,7 +35,8 @@ export function DeviceDetail({
   // Once restored, "it's been isolated" is no longer true; fall back to the risk summary.
   const summary = incident && (contained || !incident.actions_taken.length) ? summarize(incident, device) : deviceSummary(device);
   const steps = cleanupSteps(device);
-  const reasons = device.reasons.map(parseReason);
+  const reasons = device.reasons.map(plainReason);
+  const [showTech, setShowTech] = useState(false);
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end">
@@ -52,7 +55,7 @@ export function DeviceDetail({
             <div className="min-w-0">
               <h2 className="text-[24px] font-semibold leading-tight tracking-tight text-ink">{device.label}</h2>
               <p className="mt-1 text-[14px] text-ink-2">
-                {[device.vendor, device.model].filter(Boolean).join(" ") || "Unknown vendor"}  ·  {device.ip}
+                {[device.vendor, device.model].filter(Boolean).join(" ") || "Unknown maker"}
               </p>
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <Status status={device.status} />
@@ -101,15 +104,18 @@ export function DeviceDetail({
               ) : (
                 <>
                   {reasons.map((r) => (
-                    <div key={r.text} className="px-5 py-3">
+                    <div key={r.technical} className="px-5 py-3">
                       <div className="flex items-baseline justify-between gap-4">
-                        <span className="text-[14px] text-ink">{r.text}</span>
+                        <span className="text-[14px] text-ink">
+                          {r.plain}
+                          {r.plain !== r.technical && <span className="ml-2 text-[12px] text-ink-3">{r.technical}</span>}
+                        </span>
                         {r.points != null && <span className="text-[14px] font-semibold tabular-nums text-ink">+{r.points}</span>}
                       </div>
                       {r.points != null && (
                         <div className="mt-2 h-1 overflow-hidden rounded-full bg-fill">
                           <div
-                            className={`h-full rounded-full ${/probing|anomal/i.test(r.text) ? "bg-bad" : "bg-ink"}`}
+                            className={`h-full rounded-full ${/probing|anomal/i.test(r.technical) ? "bg-bad" : "bg-ink"}`}
                             style={{ width: `${(r.points / 40) * 100}%`, transition: "width 600ms var(--ease-apple)" }}
                           />
                         </div>
@@ -141,17 +147,30 @@ export function DeviceDetail({
             </Section>
           )}
 
-          <Section title="Details">
-            <Card className="divide-y divide-hairline">
-              <Detail label="MAC address" value={device.mac} mono />
-              <Detail label="Open ports" value={device.ports.length ? device.ports.join(", ") : "None"} />
-              <Detail label="Data in / out" value={`${bytes(device.bytes_in)} / ${bytes(device.bytes_out)}`} />
-              <Detail label="End-of-life" value={yesNo(device.eol)} />
-              <Detail label="Default password" value={yesNo(device.default_creds)} />
-              {device.kev && <Detail label="Known exploited (KEV)" value={device.kev[0].toUpperCase() + device.kev.slice(1)} />}
-              <Detail label="Talks to" value={device.dests.length ? device.dests.join(", ") : "Nothing"} />
-            </Card>
-          </Section>
+          <section>
+            <button
+              onClick={() => setShowTech((v) => !v)}
+              aria-expanded={showTech}
+              className="mb-2 flex w-full items-center justify-between px-1 text-[13px] font-semibold uppercase tracking-wide text-ink-3 hover:text-ink-2"
+            >
+              Technical details
+              <ChevronDown size={16} className={`transition-transform duration-300 ${showTech ? "rotate-180" : ""}`} aria-hidden />
+            </button>
+            {showTech && (
+              <div className="animate-expand">
+                <Card className="divide-y divide-hairline">
+                  <Detail label="IP address" value={device.ip} mono />
+                  <Detail label="MAC address" value={device.mac} mono />
+                  <Detail label="Open ports" value={device.ports.length ? device.ports.join(", ") : "None"} />
+                  <Detail label="Data in / out" value={`${bytes(device.bytes_in)} / ${bytes(device.bytes_out)}`} />
+                  <Detail label="End-of-life" value={yesNo(device.eol)} />
+                  <Detail label="Default password" value={yesNo(device.default_creds)} />
+                  {device.kev && <Detail label="Known exploited (KEV)" value={device.kev[0].toUpperCase() + device.kev.slice(1)} />}
+                  <Detail label="Talks to" value={device.dests.length ? device.dests.join(", ") : "Nothing"} />
+                </Card>
+              </div>
+            )}
+          </section>
 
           <Section title="Recent activity">
             <Card className="divide-y divide-hairline">
@@ -165,10 +184,10 @@ export function DeviceDetail({
                       <span className={`mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full ${severityDot[m?.severity ?? "info"]}`} />
                       <div className="min-w-0 flex-1">
                         <div className="flex justify-between gap-3 text-[14px]">
-                          <span className="text-ink">{m?.label ?? e.kind}</span>
+                          <span className="text-ink">{plainEvent(e)}</span>
                           <time className="text-[12px] tabular-nums text-ink-3">{clock(e.ts)}</time>
                         </div>
-                        <div className="truncate text-[12px] text-ink-2">{describeEvidence(e.evidence)}</div>
+                        {m && <div className="text-[12px] text-ink-3">{m.label}</div>}
                       </div>
                     </div>
                   );

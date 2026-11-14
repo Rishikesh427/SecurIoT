@@ -21,10 +21,40 @@ const state = {
   baseReasons: new Map(fixtureDevices().map((d) => [d.mac, d.reasons])),
   offline: false,
   attackRunning: false,
+  lastTick: Date.now(),
+  guestJoined: false,
   frozenAt: null as string | null,
 };
 
 const device = (mac: string) => state.devices.find((d) => d.mac === mac);
+
+/** Bytes per second a device "uses", so the dashboard's sparklines move. */
+function trafficRate(d: Device): number {
+  if (d.status === "quarantined" || d.status === "offline") return 0;
+  const jitter = () => 0.75 + Math.random() * 0.5;
+  switch (d.type) {
+    case "camera":
+      return (220_000 + (d.anomaly > 0 ? 650_000 : 0)) * jitter(); // video stream, bursts while attacking
+    case "phone":
+      return Math.random() < 0.3 ? 140_000 * jitter() : 6_000 * jitter();
+    case "laptop":
+      return 90_000 * jitter();
+    default:
+      return 2_500 * jitter();
+  }
+}
+
+function tickTraffic() {
+  const now = Date.now();
+  const secs = Math.min(10, (now - state.lastTick) / 1000);
+  state.lastTick = now;
+  for (const d of state.devices) {
+    const bytes = Math.round(trafficRate(d) * secs);
+    const out = d.type === "camera" ? 0.95 : 0.15;
+    d.bytes_out += Math.round(bytes * out);
+    d.bytes_in += bytes - Math.round(bytes * out);
+  }
+}
 
 function audit(e: Omit<AuditEntry, "id" | "ts">) {
   state.audit.unshift({ id: uuid(), ts: iso(), ...e });
@@ -85,6 +115,7 @@ export const mockServer = {
   async getDevices(): Promise<Device[]> {
     guard();
     await delay();
+    tickTraffic();
     const now = iso();
     for (const d of state.devices) if (d.status === "normal" || d.status === "wan_blocked") d.last_seen = now;
     return clone(state.devices);
@@ -170,6 +201,23 @@ export const mockServer = {
     state.offline = v;
   },
   attackRunning: () => state.attackRunning,
+  guestJoined: () => state.guestJoined,
+
+  /** A new device joins the network (shows the slide-in on the dashboard). */
+  simulateNewDevice() {
+    if (state.guestJoined) return;
+    state.guestJoined = true;
+    const mac = "02:00:00:00:00:50";
+    const now = iso();
+    state.devices.push({
+      mac, ip: "10.42.0.61", name: "guest-laptop", label: "Guest laptop", type: "laptop",
+      vendor: "Lenovo", model: null, ports: [], bytes_in: 0, bytes_out: 0, dests: [], last_seen: now,
+      simulated: true, has_feed: false, eol: false, default_creds: false, cloud_only: false, anomaly: 0,
+      risk: 0, band: "low", confidence: "medium", reasons: [], status: "normal",
+    });
+    state.baseReasons.set(mac, []);
+    pushEvent({ mac, ts: now, kind: "new_device", evidence: { simulated: true, ip: "10.42.0.61" } });
+  },
 
   /** Phone scans the QR code on the camera; infect.sh starts 2 s later. */
   simulateQrAttack() {

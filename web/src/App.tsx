@@ -9,8 +9,16 @@ import { DeviceList } from "./components/DeviceList";
 import { Login } from "./components/Login";
 import { Logo } from "./components/Logo";
 import { SettingsView } from "./components/SettingsView";
-import { Button, Card, SectionTitle, Segmented, Switch } from "./components/ui";
+import { AttentionList } from "./components/AttentionList";
+import { FixSheet } from "./components/FixSheet";
+import { Sparkline } from "./components/Sparkline";
+import { StatusBanner } from "./components/StatusBanner";
+import { Button, Card, SectionTitle, Segmented } from "./components/ui";
+import { useCountUp } from "./hooks/useCountUp";
 import { usePoll } from "./hooks/usePoll";
+import { rate, useTraffic } from "./hooks/useTraffic";
+import { deriveIssues, type Issue } from "./lib/issues";
+import { severityMeta } from "./lib/severity";
 import { playAlertTone, speak, unlockAudio } from "./lib/alert";
 import { isContained, shortLabel } from "./lib/format";
 import { isIncident, summarize } from "./lib/incident";
@@ -46,7 +54,8 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [muted, setMuted] = useState(false);
-  const [dismissed, setDismissed] = useState<string | null>(null);
+  const [fixing, setFixing] = useState<Issue | null>(null);
+  const [doneIds, setDoneIds] = useState<Set<string>>(loadDone);
   const [now, setNow] = useState(Date.now());
   const seenIncidents = useRef<Set<string> | null>(null);
 
@@ -143,29 +152,28 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
     await savePolicy({ ...policy, learning_mode: !armed });
   }
 
+  const traffic = useTraffic(rawDevices);
   const feedDevice = devices.find((d) => d.has_feed);
   const selectedDevice = devices.find((d) => d.mac === selected);
-  const latestIncident = events.find(isIncident);
-  const incidentSummary = latestIncident ? summarize(latestIncident, devices.find((d) => d.mac === latestIncident.mac)) : null;
-  const showAlert = latestIncident && latestIncident.id !== dismissed && now - Date.parse(latestIncident.ts) < 5 * 60_000;
   const isolated = devices.filter((d) => isContained(d.status));
-  const highRisk = devices.filter((d) => d.band === "high");
   const armed = policy ? !policy.learning_mode : false;
+  const issues = deriveIssues(devices, events, policy, { now, canAct }).filter((i) => !doneIds.has(i.id));
 
-  const headline = !hasPolicy && !isolated.length
-    ? "Your network is being monitored."
-    : isolated.length
-    ? `${isolated.length === 1 ? shortLabel(isolated[0].label) : `${isolated.length} devices`} ${isolated.length === 1 ? "is" : "are"} isolated.`
-    : armed
-      ? "Your network is protected."
-      : "Learning mode is on.";
-  const subline = !hasPolicy && !isolated.length
-    ? "Automatic protection settings aren't available from the server yet."
-    : isolated.length
-    ? "The threat is contained. Follow the cleanup steps before restoring."
-    : armed
-      ? "SecurIoT will isolate any device that starts attacking your network."
-      : "SecurIoT is watching but won't act. Turn on protection to isolate threats automatically.";
+  function markDone(issue: Issue) {
+    const next = new Set([...doneIds, issue.id]);
+    setDoneIds(next);
+    saveDone(next);
+    setFixing(null);
+    flash("Marked as done");
+  }
+
+  async function runFix(issue: Issue) {
+    const kind = issue.action?.kind;
+    setFixing(null);
+    if (kind === "turn_on_protection") await setArmed(true).then(() => flash("Automatic protection is on"));
+    else if (kind === "isolate" && issue.mac) await act("quarantine", issue.mac);
+    else if (kind === "restore" && issue.mac) await act("restore", issue.mac);
+  }
 
   return (
     <div className="min-h-screen bg-white text-ink">
@@ -209,52 +217,42 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
       <main className="mx-auto max-w-[1200px] px-6 pb-32 pt-10">
         {tab === "overview" && (
           <div key="overview" className="animate-rise-in space-y-10">
-            <section className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
-              <div className="max-w-[640px]">
-                <h1 className="text-[40px] font-semibold leading-[1.08] tracking-[-0.025em] text-ink sm:text-[48px]">{headline}</h1>
-                <p className="mt-3 text-[17px] leading-relaxed text-ink-2">{subline}</p>
-              </div>
-              <Card className="flex shrink-0 items-center gap-5 px-5 py-4">
-                <div>
-                  <div className="text-[15px] font-medium text-ink">Automatic protection</div>
-                  <div className="text-[13px] text-ink-2">{!hasPolicy ? "Not available yet" : armed ? "On" : "Off, learning mode"}</div>
-                </div>
-                <Switch label="Automatic protection" checked={armed} disabled={!policy} onChange={setArmed} />
-              </Card>
-            </section>
+            <StatusBanner
+              issues={issues}
+              armed={armed}
+              hasPolicy={hasPolicy && !!policy}
+              onArm={setArmed}
+              onReview={() => document.getElementById("attention")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            />
 
-            <section className="grid grid-cols-3 gap-4">
+            <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
               <Stat label="Devices" value={devices.length} />
-              <Stat label="High risk" value={highRisk.length} tone={highRisk.length ? "bad" : undefined} />
-              <Stat label="Isolated" value={isolated.length} tone={isolated.length ? "bad" : undefined} />
-            </section>
-
-            {showAlert && latestIncident && incidentSummary && (
-              <Card className="animate-rise-in overflow-hidden">
-                <div className="flex gap-5 px-6 py-5">
-                  <span className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${latestIncident.actions_taken.length ? "bg-bad" : "bg-warn"}`} />
-                  <div className="flex-1">
-                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                      <h2 className="text-[17px] font-semibold text-ink">{incidentSummary.headline}</h2>
-                      <span className="text-[13px] text-ink-3">
-                        {latestIncident.actions_taken.length ? "Contained, not fixed" : "Learning mode, no action taken"}
-                      </span>
-                    </div>
-                    <p className="mt-1.5 text-[15px] leading-relaxed text-ink-2">{incidentSummary.body}</p>
-                    <div className="mt-4 flex gap-2">
-                      <Button variant="primary" onClick={() => setSelected(latestIncident.mac)}>
-                        View cleanup steps
-                      </Button>
-                      <Button onClick={() => setDismissed(latestIncident.id)}>Dismiss</Button>
-                    </div>
-                  </div>
+              <Stat
+                label="Need attention"
+                value={issues.length}
+                color={issues.length ? severityMeta[issues[0].severity].color : undefined}
+              />
+              <Stat label="Cut off" value={isolated.length} color={isolated.length ? "text-sev-critical" : undefined} />
+              <Card className="flex flex-col justify-between px-5 py-4">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[13px] font-medium text-ink-2">Network traffic</span>
+                  <span className="flex items-center gap-1.5 text-[11px] font-medium text-ok">
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ok" />
+                    Live
+                  </span>
+                </div>
+                <div className="mt-2 flex items-end justify-between gap-3">
+                  <span className="text-[22px] font-semibold leading-none tracking-tight tabular-nums text-ink">{rate(traffic.total[traffic.total.length - 1] ?? 0)}</span>
+                  <Sparkline data={traffic.total} width={96} height={30} color="var(--color-ink)" />
                 </div>
               </Card>
-            )}
+            </section>
+
+            <AttentionList issues={issues} onFix={setFixing} />
 
             <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_380px]">
               <div className="space-y-10">
-                <DeviceList devices={devices} onSelect={setSelected} now={now} />
+                <DeviceList devices={devices} traffic={traffic} onSelect={setSelected} />
                 <div>
                   <SectionTitle
                     action={
@@ -301,6 +299,20 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
 
       {USE_MOCK && tab === "overview" && <DemoControls />}
 
+      {fixing && (
+        <FixSheet
+          issue={fixing}
+          busy={busy}
+          onClose={() => setFixing(null)}
+          onAction={runFix}
+          onDone={markDone}
+          onOpenDevice={(mac) => {
+            setFixing(null);
+            setSelected(mac);
+          }}
+        />
+      )}
+
       {selectedDevice && <DeviceDetail device={selectedDevice} events={events} busy={busy} canAct={canAct} onClose={() => setSelected(null)} onAction={act} />}
 
       <div
@@ -315,11 +327,30 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: number; tone?: "bad" }) {
+const DONE_KEY = "securiot.doneIssues";
+
+function loadDone(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(DONE_KEY) ?? "[]"));
+  } catch {
+    return new Set();
+  }
+}
+
+function saveDone(ids: Set<string>) {
+  try {
+    localStorage.setItem(DONE_KEY, JSON.stringify([...ids]));
+  } catch {
+    // per-viewer convenience only
+  }
+}
+
+function Stat({ label, value, color }: { label: string; value: number; color?: string }) {
+  const shown = useCountUp(value);
   return (
     <Card className="px-5 py-4">
       <div className="text-[13px] font-medium text-ink-2">{label}</div>
-      <div className={`mt-1 text-[32px] font-semibold leading-none tracking-tight tabular-nums ${tone === "bad" ? "text-bad" : "text-ink"}`}>{value}</div>
+      <div className={`mt-1 text-[32px] font-semibold leading-none tracking-tight tabular-nums transition-colors duration-500 ${color ?? "text-ink"}`}>{shown}</div>
     </Card>
   );
 }
@@ -328,6 +359,7 @@ function Stat({ label, value, tone }: { label: string; value: number; tone?: "ba
 function DemoControls() {
   const [offline, setOffline] = useState(mockServer.isOffline());
   const [running, setRunning] = useState(false);
+  const [joined, setJoined] = useState(mockServer.guestJoined());
   usePoll(() => setRunning(mockServer.attackRunning()), 300);
 
   return (
@@ -344,6 +376,16 @@ function DemoControls() {
         }}
       >
         {running ? "Attack in progress" : "Simulate QR attack"}
+      </Button>
+      <Button
+        className="h-8"
+        disabled={joined}
+        onClick={() => {
+          mockServer.simulateNewDevice();
+          setJoined(true);
+        }}
+      >
+        Device joins
       </Button>
       <Button
         className="h-8"

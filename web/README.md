@@ -20,6 +20,15 @@ npm run dev        # http://localhost:5173
 
 With protection off (learning mode), the same attack is reported as "would have" and nothing is isolated.
 
+**Device joins** adds a guest laptop so you can see a new device slide in. Switch **Devices** to **Map** for the network view (router in the middle, Cytoscape.js; loaded only when opened).
+
+## How the Overview is organized
+
+1. **Am I okay?** One status banner: green "You're protected", amber "N things need attention", red when something is under attack or cut off.
+2. **What's wrong?** "What needs attention", most urgent first. Each item has a severity (Critical / High / Medium / Low, each with its own color, icon and label) and a **Fix** button.
+3. **What do I do?** Fix opens plain steps, one main action (turn on protection, isolate, restore) and "I've done this". Technical terms only appear under "Technical details".
+4. Activity shows a plain summary per event; click one to see its raw log entry.
+
 ## Real backend
 
 **Local, against the API on port 8000:** start the API from the repo root (`uvicorn api.main:app --port 8000`), then run the dashboard with mock mode off:
