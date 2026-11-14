@@ -8,7 +8,7 @@ npm install
 npm run dev        # http://localhost:5173
 ```
 
-By default it runs on **mock data** (`VITE_USE_MOCK=true`), so it needs no agent, API or Pi. Any username and password logs in.
+`npm run dev` uses **mock data** by default, so it needs no agent, API or Pi. Any username and password logs in. Production builds (`npm run build`) use the real API.
 
 ## Demo in mock mode
 
@@ -22,15 +22,33 @@ With protection off (learning mode), the same attack is reported as "would have"
 
 ## Real backend
 
-Set in `web/.env`:
+**Local, against the API on port 8000:** start the API from the repo root (`uvicorn api.main:app --port 8000`), then run the dashboard with mock mode off:
 
-```
-VITE_API_BASE_URL=/api     # same-origin Caddy proxy; or http://localhost:8000, or http://10.42.0.1:8787 for the agent
-VITE_USE_MOCK=false
+```bash
+VITE_USE_MOCK=false npm run dev
 ```
 
-The dashboard follows `/contract` (schemas.json and the route table in contract/README.md):
-`POST /auth/login`, `GET /devices`, `GET /events`, `GET/PUT /policy`, `POST /actions` (`{action, mac}`), `GET /audit`, `POST /audit/run`, plus the agent's `GET /feed/{mac}/meta` for the camera tile. A 401 signs you out.
+The dev server proxies `/api/*` to `http://localhost:8000` with the prefix stripped, the same way Caddy does, so there's no CORS setup. Log in with the judge account.
+
+**Docker (Person B's setup):** build the bundle, point Caddy at it, recreate Caddy:
+
+```bash
+cd web && npm run build          # real API at /api; nothing secret goes in the bundle
+# in the repo-root .env:  WEB_BUNDLE_PATH=./web/dist
+docker compose up -d --force-recreate caddy
+```
+
+**Settings** (`web/.env`, all optional):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `VITE_API_URL` (or `VITE_API_BASE_URL`) | `/api` | API base |
+| `VITE_USE_MOCK` | `true` in dev, `false` in builds | Force mock on or off |
+| `VITE_FEED_URL` | unset | Agent's local API (e.g. `http://10.42.0.1:8787`) for the live camera feed. Unset, the camera tile follows the device status |
+
+Never put keys in `web/.env`. Everything there ends up in the public bundle.
+
+**Routes not built yet:** the dashboard checks once per load. Without `/policy`, the protection switch and Settings say "not available yet"; without `/actions`, Isolate/Restore are hidden; without `/audit` and `/audit/run`, the audit log and digest say so. Everything else (devices, activity, risk, containment) works from `/devices` and `/events`. A 401 signs you out.
 
 Mock mode reads `../contract/fixtures.json` directly, so the mock data always matches the contract.
 

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api } from "../api/client";
+import { api, isMissing } from "../api/client";
 import { usePoll } from "../hooks/usePoll";
 import { actionLabel, clock, isContained } from "../lib/format";
 import type { ActionName, AuditEntry, Device, SecurEvent } from "../types";
@@ -15,24 +15,34 @@ export function ActivityView({
   events,
   onAction,
   onSelect,
+  canAct,
+  canRunAudit,
 }: {
   devices: Device[];
   events: SecurEvent[];
   onAction: (action: ActionName, mac: string) => void;
   onSelect: (mac: string) => void;
+  canAct: boolean;
+  canRunAudit: boolean;
 }) {
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [summary, setSummary] = useState<{ text: string; at: number } | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasAudit, setHasAudit] = useState(true);
 
-  usePoll(async () => {
-    try {
-      setEntries(await api.audit());
-    } catch {
-      // offline banner covers this
-    }
-  }, 2000);
+  usePoll(
+    async () => {
+      try {
+        setEntries(await api.audit());
+      } catch (e) {
+        if (isMissing(e)) setHasAudit(false);
+        // other failures: the offline banner covers it
+      }
+    },
+    2000,
+    hasAudit,
+  );
 
   async function run() {
     setRunning(true);
@@ -55,7 +65,7 @@ export function ActivityView({
         <div>
           <SectionTitle
             action={
-              <Button variant="primary" onClick={run} disabled={running}>
+              <Button variant="primary" onClick={run} disabled={running || !canRunAudit}>
                 {running ? "Running" : "Run audit"}
               </Button>
             }
@@ -65,7 +75,9 @@ export function ActivityView({
           <Card className="px-6 py-5">
             {error && <p className="mb-3 text-[13px] text-bad">{error}</p>}
             {!summary ? (
-              <p className="text-[14px] leading-relaxed text-ink-3">Run an audit for a plain-language summary of your network.</p>
+              <p className="text-[14px] leading-relaxed text-ink-3">
+                {canRunAudit ? "Run an audit for a plain-language summary of your network." : "The digest will be available once the server supports it."}
+              </p>
             ) : (
               <div key={summary.at} className="animate-rise-in">
                 <h3 className="text-[20px] font-semibold leading-snug tracking-tight text-ink">{headline}</h3>
@@ -83,13 +95,15 @@ export function ActivityView({
         <div>
           <SectionTitle>Audit log</SectionTitle>
           <Card className="overflow-hidden">
-            {entries.length === 0 ? (
+            {!hasAudit ? (
+              <p className="px-5 py-8 text-center text-[14px] text-ink-3">The audit log will appear once the server supports it.</p>
+            ) : entries.length === 0 ? (
               <p className="px-5 py-8 text-center text-[14px] text-ink-3">Every action taken by you or SecurIoT appears here.</p>
             ) : (
               <ul className="divide-y divide-hairline">
                 {entries.map((e) => {
                   const d = devices.find((x) => x.mac === e.mac);
-                  const canUndo = UNDOABLE.has(e.action) && e.outcome === "applied" && d && isContained(d.status);
+                  const canUndo = canAct && UNDOABLE.has(e.action) && e.outcome === "applied" && d && isContained(d.status);
                   return (
                     <li key={e.id} className="flex items-center gap-4 px-5 py-3.5">
                       <div className="min-w-0 flex-1">

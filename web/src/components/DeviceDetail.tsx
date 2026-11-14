@@ -12,12 +12,14 @@ export function DeviceDetail({
   onClose,
   onAction,
   busy,
+  canAct,
 }: {
   device: DashDevice;
   events: SecurEvent[];
   onClose: () => void;
   onAction: (action: ActionName, mac: string) => void;
   busy: boolean;
+  canAct: boolean;
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -61,7 +63,9 @@ export function DeviceDetail({
             </div>
           </div>
 
-          {contained ? (
+          {!canAct ? (
+            <p className="rounded-2xl bg-fill px-4 py-3 text-[14px] text-ink-2">Isolate and Restore will work once the server supports actions.</p>
+          ) : contained ? (
             <Button variant="primary" className="w-full" disabled={busy} onClick={() => onAction("restore", device.mac)}>
               Restore
             </Button>

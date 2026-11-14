@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useRef, useState } from "react";
-import { ApiError, USE_MOCK, api, getToken, setToken } from "./api/client";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ApiError, USE_MOCK, api, getToken, isMissing, setToken } from "./api/client";
 import { ActivityList } from "./components/ActivityList";
 import { ActivityView } from "./components/ActivityView";
 import { CameraCard } from "./components/CameraCard";
@@ -37,6 +37,10 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   const [rawDevices, setRawDevices] = useState<Device[]>([]);
   const [events, setEvents] = useState<SecurEvent[]>([]);
   const [policy, setPolicy] = useState<Policy | null>(null);
+  // Routes from later API milestones; false = the server doesn't have them yet.
+  const [hasPolicy, setHasPolicy] = useState(true);
+  const [canAct, setCanAct] = useState(false);
+  const [canRunAudit, setCanRunAudit] = useState(false);
   const [offline, setOffline] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -48,13 +52,27 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
 
   usePoll(() => setNow(Date.now()), 200);
 
+  useEffect(() => {
+    api.capabilities().then((c) => {
+      setCanAct(c.actions);
+      setCanRunAudit(c.auditRun);
+    });
+  }, []);
+
   const refresh = useCallback(async () => {
     try {
-      const [d, e, p] = await Promise.all([api.devices(), api.events(), api.policy()]);
+      const [d, e] = await Promise.all([api.devices(), api.events()]);
       setRawDevices(d);
       setEvents(e);
-      setPolicy(p);
       setOffline(false);
+      if (hasPolicy) {
+        try {
+          setPolicy(await api.policy());
+        } catch (err) {
+          if (!isMissing(err)) throw err;
+          setHasPolicy(false); // stop asking until the next reload
+        }
+      }
 
       // Alert once per new incident (skip whatever already existed on first load).
       const incidents = e.filter(isIncident);
@@ -75,7 +93,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
       if (err instanceof ApiError && err.status === 401) onLogout(); // token expired
       else setOffline(true);
     }
-  }, [muted, onLogout]);
+  }, [muted, onLogout, hasPolicy]);
 
   usePoll(refresh, 2000);
 
@@ -134,12 +152,16 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   const highRisk = devices.filter((d) => d.band === "high");
   const armed = policy ? !policy.learning_mode : false;
 
-  const headline = isolated.length
+  const headline = !hasPolicy && !isolated.length
+    ? "Your network is being monitored."
+    : isolated.length
     ? `${isolated.length === 1 ? shortLabel(isolated[0].label) : `${isolated.length} devices`} ${isolated.length === 1 ? "is" : "are"} isolated.`
     : armed
       ? "Your network is protected."
       : "Learning mode is on.";
-  const subline = isolated.length
+  const subline = !hasPolicy && !isolated.length
+    ? "Automatic protection settings aren't available from the server yet."
+    : isolated.length
     ? "The threat is contained. Follow the cleanup steps before restoring."
     : armed
       ? "SecurIoT will isolate any device that starts attacking your network."
@@ -163,7 +185,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
             ]}
           />
           <div className="flex items-center justify-end gap-1">
-            {isolated.length > 0 && (
+            {isolated.length > 0 && canAct && (
               <Button onClick={() => act("restore_all")} disabled={busy} className="h-8">
                 Restore all
               </Button>
@@ -180,7 +202,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
           className={`overflow-hidden bg-fill text-center text-[13px] text-ink transition-all duration-500 ${offline ? "max-h-10 py-2.5" : "max-h-0 py-0"}`}
           style={{ transitionTimingFunction: "var(--ease-apple)" }}
         >
-          Can't reach the cloud. The agent keeps protecting your network locally at port 8787.
+          Can't reach the server. The agent keeps protecting your network locally at port 8787.
         </div>
       </header>
 
@@ -195,7 +217,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
               <Card className="flex shrink-0 items-center gap-5 px-5 py-4">
                 <div>
                   <div className="text-[15px] font-medium text-ink">Automatic protection</div>
-                  <div className="text-[13px] text-ink-2">{armed ? "On" : "Off, learning mode"}</div>
+                  <div className="text-[13px] text-ink-2">{!hasPolicy ? "Not available yet" : armed ? "On" : "Off, learning mode"}</div>
                 </div>
                 <Switch label="Automatic protection" checked={armed} disabled={!policy} onChange={setArmed} />
               </Card>
@@ -257,7 +279,16 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
 
         {tab === "activity" && (
           <div key="activity" className="animate-rise-in">
-            <ActivityView devices={devices} events={events} onAction={act} onSelect={setSelected} />
+            <ActivityView devices={devices} events={events} onAction={act} onSelect={setSelected} canAct={canAct} canRunAudit={canRunAudit} />
+          </div>
+        )}
+
+        {tab === "settings" && !hasPolicy && (
+          <div key="settings-missing" className="mx-auto max-w-[680px] animate-rise-in">
+            <Card className="px-6 py-8 text-center">
+              <h2 className="text-[19px] font-semibold text-ink">Settings aren't available yet</h2>
+              <p className="mt-2 text-[15px] text-ink-2">The server doesn't have the policy route yet. Protection, response and protected devices will appear here once it does.</p>
+            </Card>
           </div>
         )}
 
@@ -270,7 +301,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
 
       {USE_MOCK && tab === "overview" && <DemoControls />}
 
-      {selectedDevice && <DeviceDetail device={selectedDevice} events={events} busy={busy} onClose={() => setSelected(null)} onAction={act} />}
+      {selectedDevice && <DeviceDetail device={selectedDevice} events={events} busy={busy} canAct={canAct} onClose={() => setSelected(null)} onAction={act} />}
 
       <div
         className={`fixed left-1/2 top-20 z-50 -translate-x-1/2 transition-all duration-500 ${toast ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-3 opacity-0"}`}
