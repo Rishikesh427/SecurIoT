@@ -34,6 +34,13 @@ round trip. The PostgreSQL audit test in `tests/test_database.py` is opt-in with
 
 ## Local start
 
+`docker compose up` runs the dashboard from the mounted `web/` source through
+the Vite development server and runs the API with Uvicorn reload enabled.
+Frontend and backend source edits therefore appear together without rebuilding
+containers. Use `docker compose up --build` after changing a Dockerfile,
+`web/package.json`, or a Python dependency file. Open http://localhost after
+the services start. Stop the stack with `docker compose down`.
+
 From the repository root, copy `api/.env.example` to `.env` only if you do not
 already have a configured `.env` or `api/.env`. Configure the database and
 judge settings described below, initialize the schema, then:
