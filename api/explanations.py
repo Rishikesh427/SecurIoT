@@ -27,11 +27,11 @@ class ExplanationService:
             fallback = template(item, device)
             with self.lock:
                 cached = copy.deepcopy(self.cache.get(key))
-                if cached is None and self.configured and key not in self.pending:
+                if cached is None and self.configured and item["kind"] != "volume" and key not in self.pending:
                     self.pending.add(key)
                     self.pool.submit(self._generate, key, copy.deepcopy(item), copy.deepcopy(device), fallback)
             item['explanation'] = cached or fallback
-            item['explanation_status'] = 'ready' if cached else ('pending' if self.configured else 'template')
+            item['explanation_status'] = 'ready' if cached else ('pending' if self.configured and item['kind'] != 'volume' else 'template')
             output.append(item)
         return output
 

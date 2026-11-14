@@ -46,6 +46,12 @@ class Agent:
         self.last_action_at: dict[str, float] = {}
         self.grace_until: dict[str, float] = {}
         self._load_saved_state()
+        self.routine = None
+        self._routine_second = None
+        if hasattr(detector, "anomaly") and hasattr(detector, "assess_device"):
+            from .routine import Routine
+            self.routine = Routine(storage.directory, storage.mode, clock())
+            self.detector.anomaly = self.routine.scores(clock())
 
     def _load_saved_state(self) -> None:
         state = self.storage.load_state()
@@ -116,14 +122,58 @@ class Agent:
             "reason": "Explicit local Arm" if armed else "Learning mode enabled",
         })
 
+    def _routine_assessment(self, device, assessment):
+        if self.routine is None:
+            return assessment
+        baseline = self.routine.state["baselines"].get(device.mac)
+        samples = self.routine.state["calibrating"].get(device.mac)
+        status = (f"Volume baseline: frozen ({baseline['samples']} clean 10-second windows)." if baseline
+                  else f"Volume baseline: calibrating ({len(samples)}/30 clean windows); learning mode required." if samples is not None
+                  else "Volume baseline: not calibrated; volume detection unavailable.")
+        assessment["reasons"] = [*assessment["reasons"], status]
+        return assessment
+
+    def routine_tick(self):
+        routine = self.routine
+        if routine is None:
+            return
+        now = self.clock()
+        if int(now) == self._routine_second:
+            return
+        self._routine_second = int(now)
+        for mac, score, evidence in routine.advance(now, self.inventory.devices, self.policy.learning_mode and now - self.started_at >= self.policy.warmup_seconds + 10):
+            routine.signal(mac, score, now)
+            self._event("detection", mac, {"finding": "volume", "detection": evidence,
+                        "decision": "supporting_evidence_only"})
+        self.detector.anomaly = routine.scores(now)
+        for device in self.inventory.devices.values():
+            assessment = self.detector.assess_device(device)
+            assessment = self._routine_assessment(device, assessment)
+            if assessment != device.assessment:
+                device.assessment = assessment
+                device.snapshot_at = now
+        routine.save(now)
+
     def observe(self, observation: Observation) -> Event | None:
+        self.routine_tick()
         if self.inventory.observe(observation, self.clock()) is None:
             return self._event("observation_ignored", observation.mac, {"reason": "Unknown device"})
+        if self.routine is not None:
+            device = self.inventory.get(observation.mac)
+            eligible = (self.policy.learning_mode and device.status == "normal"
+                and self.clock() - self.started_at >= self.policy.warmup_seconds
+                and self.clock() >= self.grace_until.get(observation.mac, 0))
+            self.routine.record(observation, self.clock(), eligible)
         finding = self.detector.observe(observation)
         if finding is not None:
             if not isinstance(finding, Finding) or type(finding.containment_allowed) is not bool or not isinstance(finding.evidence, dict):
                 raise ValueError("Detector must return a Finding with a boolean containment decision and dictionary evidence")
             json.dumps(finding.evidence, allow_nan=False)
+        if finding is not None and self.routine is not None:
+            self.routine.flag(observation.mac)
+            score = finding.evidence.get("ml_score", finding.evidence.get("anomaly", 0))
+            self.routine.signal(observation.mac, score, self.clock())
+            self.detector.anomaly = self.routine.scores(self.clock())
         assessor = getattr(self.detector, "assess_device", None)
         if assessor is not None:
             device = self.inventory.get(observation.mac)
@@ -135,7 +185,8 @@ class Agent:
                     or not isinstance(assessment.get("reasons"), list)
                     or any(not isinstance(reason, str) for reason in assessment["reasons"])):
                 raise ValueError("Detector returned an invalid assessment; refusing to act")
-            device.assessment = assessment
+            device.assessment = self._routine_assessment(device, assessment)
+            device.snapshot_at = self.clock()
         if finding is None:
             return None
         if not finding.containment_allowed:

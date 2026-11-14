@@ -25,6 +25,7 @@ class Device:
     bytes_out: int = 0
     dests: list[str] = field(default_factory=list)
     last_seen: float | None = None
+    snapshot_at: float | None = None
     dns_queries: list[str] = field(default_factory=list)
     risk_facts: dict[str, Any] = field(default_factory=dict)
     assessment: dict[str, Any] = field(default_factory=dict)

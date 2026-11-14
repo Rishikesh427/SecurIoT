@@ -4,7 +4,7 @@ export type Band = "low" | "medium" | "high";
 export type Confidence = "low" | "medium" | "high";
 export type DeviceStatus = "normal" | "wan_blocked" | "quarantined" | "offline";
 export type ActionName = "block_wan" | "quarantine" | "restore" | "restore_all";
-export type EventKind = "scan_arp" | "scan_targets" | "decoy_touch" | "new_domain" | "new_device";
+export type EventKind = "scan_arp" | "scan_targets" | "decoy_touch" | "new_domain" | "new_device" | "volume";
 
 export interface Device {
   mac: string;

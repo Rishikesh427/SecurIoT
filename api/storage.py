@@ -95,8 +95,10 @@ class MemoryDatabase:
                 counts['accepted_events'] += 1
             for device in batch.devices:
                 old = self.conn.execute('SELECT payload FROM devices WHERE id=?', (device.mac,)).fetchone()
-                if old and Device.model_validate_json(old[0]).last_seen >= device.last_seen:
-                    continue
+                if old:
+                    prior = Device.model_validate_json(old[0])
+                    if (prior.snapshot_at or prior.last_seen) >= (device.snapshot_at or device.last_seen):
+                        continue
                 self.conn.execute('INSERT OR REPLACE INTO devices VALUES (?,?)', (device.mac,device.model_dump_json()))
                 counts['accepted_devices'] += 1
             if self.conn.execute('SELECT count(*) FROM events').fetchone()[0] > 10000 or self.conn.execute('SELECT count(*) FROM devices').fetchone()[0] > 1000:

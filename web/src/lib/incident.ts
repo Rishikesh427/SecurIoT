@@ -46,6 +46,14 @@ function withGemini(e: SecurEvent, local: Omit<Summary, "source">): Summary {
 }
 
 export function summarize(incident: SecurEvent, device: Device | undefined): Summary {
+  if (incident.kind === "volume") {
+    return withGemini(incident, {
+      headline: "Unusual traffic volume",
+      body: "Traffic exceeded this device's calibrated baseline. This is advisory evidence, not proof of an attack.",
+      next: "Review recent device activity and the baseline. No automatic containment was requested.",
+      spoken: "Unusual traffic volume detected. Review recommended.",
+    });
+  }
   const name = device ? shortLabel(device.label).toLowerCase() : "a device";
   const what = incident.kind === "decoy_touch" ? "probing other devices on your network, including a decoy" : "scanning other devices on your network";
   const contained = incident.actions_taken.length > 0;

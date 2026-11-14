@@ -22,6 +22,8 @@ export function plainReason(reason: string) {
 
 export function plainEvent(e: SecurEvent): string {
   switch (e.kind) {
+    case "volume":
+      return "Used more traffic than its calibrated baseline; review needed";
     case "scan_arp":
       return "Searched your network for other devices";
     case "scan_targets":

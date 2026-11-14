@@ -72,11 +72,13 @@ def show(event):
 class LivePump:
     """Capture thread only enqueues; runtime, storage, and cloud have one writer."""
     def __init__(self, agent, collector, cloud=None, *, capacity=4096, on_event=show, discovery=None):
+        self.agent = agent
         self.packets = queue.Queue(maxsize=capacity)
         self.discovery = discovery
         self.handle = make_handler(agent, collector, on_event, discovery)
         self.cloud = cloud
         self.dropped = 0
+        self._routine_dropped = 0
         self.next_poll = 0.0
 
     def receive(self, packet):
@@ -86,6 +88,11 @@ class LivePump:
             self.dropped += 1
 
     def step(self, now, *, wait=0.1):
+        if self.agent.routine is not None and self.dropped != self._routine_dropped:
+            for mac in self.agent.routine.windows:
+                self.agent.routine.flag(mac)
+            self._routine_dropped = self.dropped
+        self.agent.routine_tick()
         try:
             self.handle(self.packets.get(timeout=wait))
         except queue.Empty:
@@ -143,6 +150,8 @@ def run_live(iface, devices, state_dir, armed=False, decoy_ips=(), model_mode="r
     except KeyboardInterrupt:
         print("Stopped; existing restrictions and pending cloud work are retained.")
     finally:
+        if agent.routine is not None:
+            agent.routine.save(agent.clock(), force=True)
         if sniffer is not None and sniffer.running:
             sniffer.stop()
         if discovery is not None:
