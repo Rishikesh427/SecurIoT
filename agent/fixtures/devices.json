@@ -1,0 +1,16 @@
+{
+  "devices": [
+    {
+      "mac": "02:00:00:00:00:20",
+      "ip": "10.42.0.20",
+      "name": "Camera (generated fixture)",
+      "protected": false
+    },
+    {
+      "mac": "02:00:00:00:00:02",
+      "ip": "10.42.0.2",
+      "name": "Dashboard laptop (generated fixture)",
+      "protected": true
+    }
+  ]
+}
