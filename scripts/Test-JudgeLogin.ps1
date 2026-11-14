@@ -1,4 +1,4 @@
-param([string]$BaseUrl = 'http://localhost:8080')
+param([string]$BaseUrl = 'http://localhost')
 $ErrorActionPreference = 'Stop'
 
 function Read-Setting([string]$Name) {
