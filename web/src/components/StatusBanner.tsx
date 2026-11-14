@@ -55,7 +55,7 @@ export function StatusBanner({
           <t.Icon size={30} strokeWidth={1.9} aria-hidden />
         </span>
         <div className="max-w-[640px]">
-          <h1 key={headline} className="animate-fade-in text-[22px] font-semibold leading-tight tracking-[-0.015em] text-ink sm:text-[26px]">
+          <h1 key={headline} className="animate-fade-in text-[22px] font-semibold leading-tight tracking-[-0.015em] text-ink sm:text-[22px]">
             {headline}
           </h1>
           <p className="mt-0.5 text-[15px] leading-snug text-ink-2">
