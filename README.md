@@ -56,6 +56,11 @@ Agent → /ingest → DB → Scorer + Baseline → Gemini
 
 For the implemented Person B H1–16 platform, login, telemetry, controls, and demo fallback, follow [platform setup](deploy/README.md).
 Shared schemas, demo fixtures, and hardware placeholders live in [contract](contract/README.md).
+
+The [React and TypeScript dashboard](web/README.md) provides login, searchable
+device inventory, an event feed, and storage status. Run
+`docker compose up --build -d` and open http://localhost. Caddy builds the frontend
+bundle automatically; no frontend credentials or agent keys are required.
 The commands below describe later tracks and are not all implemented yet.
 
 ```bash
