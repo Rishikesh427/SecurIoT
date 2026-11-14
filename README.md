@@ -1,5 +1,25 @@
 # 🛡️ CasaWarden
 
+## Project name and compatibility
+
+**CasaWarden is the new name of the project previously called SecurIoT.** Use
+CasaWarden in documentation, presentations, and new project descriptions.
+
+Existing internal identifiers intentionally retain the legacy name to keep
+imports, deployment configuration, authentication, persisted data, and recovery
+behavior compatible. Examples include the `securiot_agent` and `securiot_ml`
+Python packages, the `securiot-agent` command, `SECURIOT_*` environment variables,
+the PostgreSQL schema and Docker Compose project named `securiot`, JWT
+issuer/audience defaults, browser storage keys, and the `securiot_guard` firewall
+tables and ownership markers. Configuration/state paths such as `/etc/securiot`
+and `/var/lib/securiot` also keep their existing names.
+
+Copy documented commands and identifiers exactly as written. These names belong
+to CasaWarden's existing implementation; they do not indicate a separate product.
+Some current UI labels, API metadata, schemas, and logs may still display
+SecurIoT. This documentation rename leaves those implementation names in place;
+renaming them would require a coordinated compatibility and migration change.
+
 **Your smart TV is spying on you. Your smart plug is a backdoor. And you can't patch either one.**
 
 A 2026 Bitdefender/NETGEAR study of 10.4 million homes found that smart TVs, smart plugs, and NAS devices make up **67.1% of all observed home vulnerabilities**. Owners can't fix the firmware, and most never see the threat coming.

@@ -1,4 +1,9 @@
-# Generated packet fixtures
+# CasaWarden generated packet fixtures
+
+> **Naming:** CasaWarden was previously called SecurIoT. Existing package names,
+> commands, and fixture identifiers retain legacy spellings to preserve working
+> imports and reproducible tests. See the
+> [project naming note](../../README.md#project-name-and-compatibility).
 
 These files contain **synthetic Ethernet frames created locally**, not recordings
 of real devices or attacks. No packets were transmitted to generate them. They

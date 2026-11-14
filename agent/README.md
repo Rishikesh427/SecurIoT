@@ -1,4 +1,10 @@
-# SecurIoT agent: packet capture, model adapter, and cloud loop
+# CasaWarden agent: packet capture, model adapter, and cloud loop
+
+> **Naming:** CasaWarden was previously called SecurIoT. Internal package/command
+> names (`securiot_agent`, `securiot-agent`), `SECURIOT_*` variables, configuration
+> paths, and persisted enforcement identifiers retain the legacy spelling for
+> compatibility. Use the commands below unchanged. See the
+> [project naming note](../README.md#project-name-and-compatibility).
 
 This is Worker A's agent development slice from the [V3 build plan](https://docs.google.com/document/d/1VMV0LMaaC6DO5OXcdFnvUauciE278WBpgJ2sXGo0xIM/edit?tab=t.n4h3all1s3x3):
 

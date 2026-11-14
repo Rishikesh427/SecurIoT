@@ -1,4 +1,11 @@
-# Person B: hours 1–20
+# CasaWarden deployment: Person B hours 1–20
+
+> **Naming:** CasaWarden was previously called SecurIoT. Backend identifiers such
+> as the `securiot` database schema and Compose project, `SECURIOT_*` variables,
+> JWT defaults, package names, and saved configuration/state paths intentionally
+> retain the legacy spelling. Keep the documented values to avoid disrupting
+> existing deployments, authentication, or data. See the
+> [project naming note](../README.md#project-name-and-compatibility).
 
 The API/web hosting runs locally, without a paid hosting service. FastAPI runs in one
 container; Caddy serves a static bundle and proxies the API in another.
@@ -26,6 +33,13 @@ round trip. The PostgreSQL audit test in `tests/test_database.py` is opt-in with
 `SECURIOT_TEST_DATABASE=1` and rolls back its writes.
 
 ## Local start
+
+`docker compose up` runs the dashboard from the mounted `web/` source through
+the Vite development server and runs the API with Uvicorn reload enabled.
+Frontend and backend source edits therefore appear together without rebuilding
+containers. Use `docker compose up --build` after changing a Dockerfile,
+`web/package.json`, or a Python dependency file. Open http://localhost after
+the services start. Stop the stack with `docker compose down`.
 
 From the repository root, copy `api/.env.example` to `.env` only if you do not
 already have a configured `.env` or `api/.env`. Configure the database and
