@@ -1,0 +1,6 @@
+{
+  "default": {"vendor": "Unknown", "type": "unknown"},
+  "AA:BB:CC": {"vendor": "TODO-projector-brand", "type": "projector"},
+  "DD:EE:FF": {"vendor": "TODO-plug-brand", "type": "plug", "cloud_only": true},
+  "11:22:33": {"vendor": "TODO-camera-brand", "type": "camera", "eol": true}
+}
