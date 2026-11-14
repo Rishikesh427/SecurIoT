@@ -1,6 +1,7 @@
 """Packet-derived deltas and rolling 10-second features, grouped by known MAC."""
 
 from collections import deque
+import ipaddress
 from dataclasses import dataclass
 from collections.abc import Iterable
 
@@ -28,8 +29,9 @@ class TrafficCollector:
 
     window_seconds = 10
 
-    def __init__(self, known_macs: Iterable[str], *, max_window_packets: int = 100_000):
+    def __init__(self, known_macs: Iterable[str], *, max_window_packets: int = 100_000, decoy_ips=()):
         self.windows: dict[str, deque[_Activity]] = {normalize_mac(mac): deque() for mac in known_macs}
+        self.decoy_ips = {str(ipaddress.ip_address(ip)) for ip in decoy_ips}
         self.max_window_packets = max_window_packets
         self.latest_timestamp = -1.0
         self.matched_frames = 0
@@ -74,6 +76,8 @@ class TrafficCollector:
         return Observation(
             mac=mac, bytes_in=activity.bytes_in, bytes_out=activity.bytes_out,
             packet_arp_requests=int(activity.arp_request),
+            arp_targets=tuple(sorted({a.destination for a in window if a.arp_request and a.destination})),
+            packet_decoy_hits=(activity.syn_target[1],) if activity.syn_target and activity.syn_target[0] in self.decoy_ips else (),
             packet_syn_targets=(activity.syn_target,) if activity.syn_target is not None else (),
             destinations=tuple(sorted({a.destination for a in window if a.destination is not None})),
             syn_targets=tuple(sorted({a.syn_target for a in window if a.syn_target is not None})),

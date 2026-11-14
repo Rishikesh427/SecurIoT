@@ -63,7 +63,7 @@ class MLIntegrationTests(unittest.TestCase):
 
     def test_protected_mac_is_ignored_by_c_and_never_enforced(self):
         result = self.replay("protected_arp.pcap", armed=True)
-        self.assertEqual(result.events, [])
+        self.assertEqual(result.events[-1].evidence["decision"], "protected_device")
         self.assertEqual(result.agent.enforcer.calls, [])
 
     def test_c_score_combines_explicit_fixture_facts_and_packet_evidence(self):
@@ -85,10 +85,10 @@ class MLIntegrationTests(unittest.TestCase):
         agent = self.replay("arp_scan.pcap", armed=True).agent
         self.assertEqual(agent.request_action("restore", MAC).actions_taken, ["restore"])
         agent.clock.advance(1)
-        event = agent.observe(Observation(MAC, packet_arp_requests=1))
+        event = agent.observe(Observation(MAC, packet_arp_requests=1, arp_targets=tuple(f"10.42.0.{i}" for i in range(50, 80))))
         self.assertEqual(event.evidence["decision"], "restore_grace")
         agent.clock.advance(60)
-        event = agent.observe(Observation(MAC, packet_arp_requests=30))
+        event = agent.observe(Observation(MAC, packet_arp_requests=30, arp_targets=tuple(f"10.42.0.{i}" for i in range(50, 80))))
         self.assertEqual(event.actions_taken, ["quarantine"])
 
     def test_rolling_totals_are_not_fed_back_into_c(self):

@@ -43,11 +43,15 @@ def load_devices(path: Path) -> Inventory:
             ports = record.get("ports", [])
             if not isinstance(ports, list) or any(type(port) is not int or not 1 <= port <= 65535 for port in ports):
                 raise ValueError("ports must be a list of integers from 1 to 65535")
+            admin_ports = record.get("admin_ports", [])
+            if not isinstance(admin_ports, list) or any(type(port) is not int or port not in ports for port in admin_ports):
+                raise ValueError("admin_ports must be a subset of reported integer ports")
             devices.append(Device(record["mac"], record["ip"], name,
                                   protected=record.get("protected", False), simulated=True,
                                   risk_facts={key: record[key] for key in (
-                                      "ports", "vendor", "model", "eol", "default_creds", "cloud_only"
+                                      "ports", "admin_ports", "vendor", "model", "eol", "default_creds", "cloud_only"
                                   ) if key in record}))
+            devices[-1].risk_facts["_simulated_facts"] = record.get("simulated") is True
             if "persona" in record:
                 if record.get("simulated") is not True or not isinstance(record["persona"], dict):
                     raise ValueError("A persona requires an explicitly simulated device")
@@ -77,26 +81,32 @@ class ReplayResult:
     capture_duration: float
 
 
-def replay_capture(path: Path, inventory: Inventory, storage: Storage, *, armed: bool = False, detector: str = "preview") -> ReplayResult:
+def replay_capture(path: Path, inventory: Inventory, storage: Storage, *, armed: bool = False, detector: str = "preview", ready=None, progress=None, detector_factory=None, decoy_ips=()) -> ReplayResult:
     # Preserve packet spacing, but map an old capture onto this replay's clock.
     # This avoids moving persisted cooldown/grace timers backwards on reuse.
     saved = storage.load_state()
     clock = DemoClock(max(time.time(), saved["saved_at"]) + 1)
     started_at = clock()
-    if detector == "ml":
+    if detector_factory is not None:
+        implementation = detector_factory(clock=clock, protected_macs=[d.mac for d in inventory.devices.values() if d.protected])
+    elif detector == "ml":
         from .ml_adapter import MLAdapter
         implementation = MLAdapter(clock, (d.mac for d in inventory.devices.values() if d.protected))
     elif detector == "preview":
         implementation = ReplayPreviewDetector()
     else:
         raise ValueError(f"Unknown detector: {detector}")
+    if not callable(getattr(implementation, "observe", None)) or (detector_factory is not None and not callable(getattr(implementation, "assess_device", None))):
+        raise ValueError("Detector adapter must implement observe() and assess_device()")
     agent = Agent(inventory, implementation, MockEnforcer(), storage, clock=clock)
     if detector == "ml":
         for device in inventory.devices.values():
             device.assessment = implementation.assess_device(device)
     if armed:
         agent.set_armed(True)
-    collector = TrafficCollector(inventory.devices)
+    if ready is not None:
+        ready(agent)
+    collector = TrafficCollector(inventory.devices, decoy_ips=decoy_ips)
     capture = CaptureStats()
     events = []
     first_timestamp = last_timestamp = None
@@ -109,15 +119,17 @@ def replay_capture(path: Path, inventory: Inventory, storage: Storage, *, armed:
             event = agent.observe(observation)
             if event is not None:
                 events.append(event)
+        if progress is not None:
+            progress(agent)
     duration = last_timestamp - first_timestamp if first_timestamp is not None else 0
     return ReplayResult(agent, capture, collector, events, duration)
 
 
-def run_replay(path: Path, devices_path: Path, state_dir: Path, armed: bool, detector: str = "ml") -> None:
+def run_replay(path: Path, devices_path: Path, state_dir: Path, armed: bool, detector: str = "ml", decoy_ips=()) -> None:
     print("SECURIOT — OFFLINE PACKET REPLAY / MOCK ENFORCEMENT")
     print("Reads a file only. Capture timing is preserved; no live packets or firewall commands are sent.")
     print("The 30-second startup warmup uses capture time. --arm enables mock actions only.")
-    result = replay_capture(path, load_devices(devices_path), Storage(state_dir), armed=armed, detector=detector)
+    result = replay_capture(path, load_devices(devices_path), Storage(state_dir), armed=armed, detector=detector, decoy_ips=decoy_ips)
     print(f"\nCapture: {path}")
     print(f"Frames: {result.capture.frames_read}; Ethernet: {result.capture.ethernet_frames}; "
           f"unsupported/skipped: {result.capture.skipped_frames}")

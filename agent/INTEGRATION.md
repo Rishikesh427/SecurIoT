@@ -8,8 +8,8 @@ enforcement, restart state, and an audit/outbox. Generated capture fixtures make
 the whole chain reproducible on a development laptop.
 
 This is a collection/core milestone, not completion of Worker A's network track.
-Live discovery/capture, the Linux AP/firewall, cloud delivery, and the local web
-server still need implementation and integration tests.
+Cloud delivery/command polling is implemented for the offline runner. Live
+discovery/capture, Linux enforcement, the local web server, and deployment tests remain pending.
 
 ```mermaid
 flowchart LR
@@ -25,8 +25,8 @@ flowchart LR
 ```
 
 The C/B/D boxes show the intended seams. The replay CLI now calls Worker C's actual detector and scorer locally and ends
-at the outbox. The preview is available only by explicit selection. Cloud
-services remain pending.
+at the outbox. The preview is available only by explicit selection. B's cloud routes are connected by the optional runner; dashboard command creation
+and deployed database verification remain pending.
 
 ## Worker C integration status: connected for offline replay
 
@@ -37,14 +37,15 @@ behavior. Combined tests live in `tests/test_ml_integration.py`.
 The collector adds explicit per-packet `packet_arp_requests` and
 `packet_syn_targets` fields. C receives those deltas rather than rolling totals,
 and maintains its own window. The adapter aligns C's public `t0` with the replay
-session clock and keeps its warmup enabled. Protected MACs are supplied to C's
-ignore list as well as guarded by the agent.
+session clock and keeps its warmup enabled. Protected devices remain visible to C's detector; the agent prevents automatic
+actions against them.
 
 C marks target scans as supporting evidence: they are recorded without automatic
 action. Only `scan_arp` and `decoy_touch` with anomaly ≥0.5 can request containment;
 the agent still applies learning mode, protection, cooldown, and restore grace.
-Raw packet replay doesn't configure decoy hits yet, and cached baselines aren't
-automatically enabled until their byte intervals are agreed.
+Raw packet replay accepts explicitly configured TCP decoy IPs. Cached baselines
+are not automatically enabled until their byte intervals are agreed. ARP-only
+containment also requires eight distinct ARP targets to reduce repeated-gateway false quarantines.
 
 Assessments use C's native anomaly ratio and retain the maximum observed ratio
 for this offline session. Static risk factors come from explicit device config;
@@ -75,8 +76,8 @@ The source of truth now exists at `contract/schemas.json`, `fixtures.json`, and
 - `GET /sync?etag=...`: policy plus queued commands, polled every two seconds.
 - `POST /commands/{id}/ack`: acknowledge the actual outcome after validation/enforcement.
 
-These business routes are not implemented by this agent. Before connecting them,
-build a serialization adapter and validate its batches against the shared schema:
+The optional connected runner calls these routes. `wire.py` converts local records
+and `cloud_loop.py` validates each batch before upload:
 
 | Local representation today | Required integration behavior |
 | --- | --- |
@@ -115,3 +116,17 @@ with an nftables backend. The safety/runtime and cloud adapters remain shared.
 Then verify the real access point, traffic visibility, block/restore behavior,
 panic recovery, and offline operation on Linux. Packet replay cannot prove any
 of those hardware properties.
+
+
+## Connected runner and model handoff
+
+The optional `--connect` runner now serializes and validates records against the
+shared schema, calls B's real ingest/sync/ack routes, and journals uploads and
+command outcomes for retry. See [CLOUD_RUNNER.md](CLOUD_RUNNER.md). Live hardware, dashboard command creation, and deployed database verification
+remain pending.
+
+Current adapter guards retain protected-device alerts and require multi-host ARP
+evidence for automatic quarantine. Vulnerability scoring now uses C's score weights
+with agent-side provenance and conservative catalog candidates; see
+[THREAT_COVERAGE.md](THREAT_COVERAGE.md). A trained-model adapter factory can be
+selected explicitly, but no trained artifact has been supplied yet.

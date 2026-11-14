@@ -55,6 +55,8 @@ class Observation:
     captured_at: float | None = None
     packet_arp_requests: int = 0
     packet_syn_targets: tuple[tuple[str, int], ...] = ()
+    arp_targets: tuple[str, ...] = ()
+    packet_decoy_hits: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "mac", normalize_mac(self.mac))

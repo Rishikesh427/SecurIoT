@@ -11,6 +11,7 @@ dependencies = []
 
 [project.optional-dependencies]
 replay = ["scapy>=2.6,<3"]
+cloud = ["jsonschema>=4.23,<5", "rfc3339-validator>=0.1.4,<1"]
 
 [project.scripts]
 securiot-agent = "securiot_agent.cli:main"

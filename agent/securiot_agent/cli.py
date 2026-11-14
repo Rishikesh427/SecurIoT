@@ -1,8 +1,10 @@
 import argparse
 from pathlib import Path
 import sys
+import os
 
 from .simulation import run_demo
+from .cloud import CloudError
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -21,18 +23,34 @@ def main(argv: list[str] | None = None) -> int:
                         help="Explicitly allow mock actions during the walkthrough; learning mode is the default.")
     parser.add_argument("--state-dir", type=Path,
                         help="Local state/outbox directory (default: agent/runtime, with replay in a subfolder).")
+    parser.add_argument("--decoy-ip", action="append", default=[], help="Explicitly configured decoy destination IP (repeatable).")
+    parser.add_argument("--connect", action="store_true", help="Upload replay results and poll cloud commands continuously.")
+    parser.add_argument("--api-url", default=os.environ.get("SECURIOT_API_URL"))
+    parser.add_argument("--once", action="store_true", help="One final cloud cycle after replay, then exit.")
+    parser.add_argument("--detector-factory", help="Explicit module:factory for C's future trained-model adapter.")
     args = parser.parse_args(argv)
+    if args.connect and (not args.replay or args.detector != "ml" or not args.api_url or not os.environ.get("AGENT_API_KEY")):
+        parser.error("--connect requires --replay, --detector ml, --api-url, and AGENT_API_KEY in the environment")
+    if (args.once or args.detector_factory) and not args.connect:
+        parser.error("--once and --detector-factory require --connect")
     runtime_dir = Path(__file__).resolve().parents[1] / "runtime"
-    state_dir = args.state_dir or (runtime_dir / "replay" if args.replay else runtime_dir)
+    state_dir = args.state_dir or (runtime_dir / "connected" if args.connect else runtime_dir / "replay" if args.replay else runtime_dir)
     try:
-        if args.replay:
+        if args.connect:
+            from .runner import run_connected
+            run_connected(args.replay, args.devices, state_dir, args.api_url, os.environ["AGENT_API_KEY"],
+                          armed=args.arm, once=args.once, detector_factory=args.detector_factory, decoy_ips=args.decoy_ip)
+        elif args.replay:
             # Keep the original summary demo usable without the optional Scapy install.
             from .replay import run_replay
 
-            run_replay(args.replay, args.devices, state_dir, args.arm, args.detector)
+            run_replay(args.replay, args.devices, state_dir, args.arm, args.detector, args.decoy_ip)
         else:
             run_demo(state_dir, args.arm)
     except ModuleNotFoundError as error:
+        if error.name == "jsonschema":
+            print('Cloud runner needs: python3 -m pip install -e "agent[cloud,replay]"', file=sys.stderr)
+            return 1
         if error.name and error.name.startswith("scapy"):
             print('Packet replay needs Scapy. Install with: python3 -m pip install -e "agent[replay]"',
                   file=sys.stderr)
@@ -41,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
             print('Worker C integration needs: python3 -m pip install -e ./ml', file=sys.stderr)
             return 1
         raise
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, CloudError) as error:
         print(f"Agent stopped: {error}", file=sys.stderr)
         return 1
     return 0
