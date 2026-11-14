@@ -4,6 +4,7 @@ Set SECURIOT_TEST_DATABASE=1 after running python -m api.manage init-db.
 """
 import json
 import os
+from contextlib import contextmanager
 from pathlib import Path
 from uuid import uuid4
 
@@ -17,6 +18,35 @@ from api.manage import migrate, seed_judge
 from api.settings import Settings
 
 pytestmark = pytest.mark.skipif(os.getenv("SECURIOT_TEST_DATABASE") != "1", reason="Live database checks are opt-in")
+
+
+def test_live_audit_projects_existing_events_without_duplicates():
+    from api.telemetry import Ingest
+    from ml.securiot_ml.digest import digest
+    from datetime import datetime, timezone
+
+    settings = Settings.load()
+    with Database(settings).connect() as conn:
+        with conn.transaction(force_rollback=True):
+            class TransactionDatabase(Database):
+                @contextmanager
+                def connect(self):
+                    with conn.transaction():
+                        yield conn
+
+            db = TransactionDatabase(settings)
+            data = json.loads((Path(__file__).parents[1] / 'contract/fixtures.json').read_text())
+            event = data['events'][1]
+            event.update(id=str(uuid4()), ts=datetime.now(timezone.utc).isoformat(),
+                         source='agent', actions_taken=['block_wan', 'quarantine'], would_have=[])
+            batch = Ingest.model_validate({'devices': [], 'events': [event]})
+            assert db.ingest(batch)['accepted_events'] == 1
+            assert db.ingest(batch)['accepted_events'] == 0
+            rows = [r for r in db.audit() if r.get('event_id') == event['id']]
+            assert {r['action'] for r in rows} == {'detected:decoy_touch', 'block_wan', 'quarantine'}
+            assert len(rows) == 3
+            assert all(r['actor'] == 'agent' and r['outcome'] == 'applied' for r in rows)
+            assert '1 quarantine(s) reported applied' in digest(rows)['summary']
 
 
 def test_live_schema_seed_and_constraints():

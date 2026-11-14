@@ -19,8 +19,11 @@ class Database:
             return conn.execute("SELECT version FROM schema_migrations WHERE version = 3").fetchone() is not None
 
     def audit(self):
+        from api.audit_history import merge_history
         with self.connect() as conn:
             rows = conn.execute('SELECT id,ts,actor,action,mac,command_id,outcome FROM audit ORDER BY ts DESC,id DESC LIMIT 1000').fetchall()
+            events = conn.execute('SELECT id,ts,mac,kind,source,actions_taken,would_have FROM events ORDER BY ts DESC,id DESC LIMIT 1000').fetchall()
+            rows = merge_history(rows, events)
             return [{key:(str(value) if key == 'mac' else value) for key,value in row.items() if value is not None}
                     for row in rows]
 

@@ -161,6 +161,7 @@
       "properties": {
         "id": {"type": "string", "format": "uuid"}, "ts": {"type": "string", "format": "date-time"},
         "actor": {"type": "string"}, "action": {"type": "string"},
+          "event_id": {"type": "string", "format": "uuid"},
         "mac": {"$ref": "#/$defs/Mac"}, "command_id": {"type": "string", "format": "uuid"},
         "outcome": {"enum": ["requested", "applied", "failed", "would_have"]}
       }
