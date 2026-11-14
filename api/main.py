@@ -58,14 +58,41 @@ def create_app(settings=None, database=None):
     @asynccontextmanager
     async def lifespan(app):
         app.state.settings = settings or Settings.load()
-        app.state.db = database or Database(app.state.settings)
-        yield
+        from api.storage import Storage
+        app.state.db = database if database is not None else Storage(Database(app.state.settings), app.state.settings)
+        try:
+            yield
+        finally:
+            if isinstance(app.state.db, Storage):
+                app.state.db.close()
 
     root_path = settings.root_path if settings else env.get("ROOT_PATH", "")
     origins = settings.cors_origins if settings else env.get("CORS_ORIGINS", "http://localhost:5173")
-    app = FastAPI(title="SecurIoT API", version="0.2.0", root_path=root_path, lifespan=lifespan)
+    app = FastAPI(title="SecurIoT API", version="0.4.0", root_path=root_path, lifespan=lifespan)
     app.add_middleware(CORSMiddleware, allow_origins=[s.strip() for s in origins.split(",") if s.strip()],
-                       allow_methods=["GET", "POST", "PUT"], allow_headers=["Authorization", "Content-Type", "X-API-Key"])
+                       allow_methods=["GET", "POST", "PUT"], allow_headers=["Authorization", "Content-Type", "X-API-Key", "If-Match", "Idempotency-Key"],
+                       expose_headers=['ETag', 'X-Storage-Mode', 'X-Demo-Storage'])
+
+    def storage_status(request):
+        db = request.app.state.db
+        if hasattr(db, 'status'):
+            return db.status()
+        return {'mode':'postgres', 'demo_storage':False, 'persistent':True, 'badge':'Tiger Data', 'reason':None, 'recovery':None}
+
+    @app.middleware('http')
+    async def storage_headers(request, call_next):
+        response = await call_next(request)
+        state = storage_status(request)
+        response.headers['X-Storage-Mode'] = state['mode']
+        response.headers['X-Demo-Storage'] = str(state['demo_storage']).lower()
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+
+    @app.get('/storage', tags=['platform'])
+    def storage(request: Request):
+        if not request.app.state.db.ready():
+            raise HTTPException(503, 'Database not initialized')
+        return storage_status(request)
 
     @app.exception_handler(psycopg.Error)
     async def database_error(request, exc):
@@ -73,13 +100,13 @@ def create_app(settings=None, database=None):
 
     @app.get("/healthz", tags=["platform"])
     def health():
-        return {"status": "ok", "service": "securiot-api", "stage": "platform-h8-12"}
+        return {"status": "ok", "service": "securiot-api", "stage": "platform-h12-16"}
 
     @app.get("/readyz", tags=["platform"])
     def ready(request: Request):
         if not request.app.state.db.ready():
             raise HTTPException(status_code=503, detail="Database not initialized")
-        return {"status": "ok", "database": "ready"}
+        return {"status": "ok", "database": "ready", 'storage':storage_status(request)}
 
     @app.post("/auth/login", response_model=TokenResponse, tags=["auth"])
     def login(body: LoginRequest, request: Request, response: Response):
@@ -98,6 +125,8 @@ def create_app(settings=None, database=None):
 
     from api.telemetry import router
     app.include_router(router(current_user))
+    from api.control import router as control_router
+    app.include_router(control_router(current_user))
     return app
 
 

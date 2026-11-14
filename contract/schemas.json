@@ -4,6 +4,28 @@
   "title": "SecurIoT v3.2 shared contract",
   "$ref": "#/$defs/Ingest",
   "$defs": {
+    "StorageStatus": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mode", "demo_storage", "persistent", "badge", "reason", "recovery"],
+      "properties": {
+        "mode": {"enum": ["postgres", "memory"]},
+        "demo_storage": {"type": "boolean"}, "persistent": {"type": "boolean"},
+        "badge": {"enum": ["Tiger Data", "Demo storage"]},
+        "reason": {"enum": [null, "configured", "database_unavailable"]},
+        "recovery": {"enum": [null, "restart"]}
+      }
+    },
+    "PolicyInput": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "learning_mode": {"type": "boolean", "default": true},
+        "protected_macs": {"type": "array", "uniqueItems": true, "maxItems": 1000, "default": [], "items": {"$ref": "#/$defs/Mac"}},
+        "ladder": {
+          "type": "object", "additionalProperties": false,
+          "properties": {"notify": {"type": "boolean", "default": true}, "block_wan": {"type": "boolean", "default": true}, "quarantine": {"type": "boolean", "default": true}}
+        }
+      }
+    },
     "LoginRequest": {
       "type": "object", "required": ["username", "password"],
       "properties": {
