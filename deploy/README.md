@@ -5,6 +5,26 @@ container; Caddy serves a static bundle and proxies the API in another.
 Docker Engine + Compose on Linux are suitable; on Windows use Docker Desktop
 with Linux containers (subject to its license). No Vultr dependency.
 
+## Audit and digest
+
+The dashboard's Generate digest button calls authenticated `POST /api/audit/run`.
+The deterministic digest works offline without Gemini. It summarizes the latest
+1,000 audit entries, not a guaranteed full week, and separates recorded activity,
+simulator reports, and seeded demo examples. Pending requests, failed actions,
+learning-mode proposals, and acknowledged outcomes are counted separately.
+
+`GET /api/audit` combines dashboard command records with detection and action
+records derived from stored events. Event rows include `event_id` and stable IDs;
+repeated ingest does not duplicate history. Existing stored events are included
+without a migration. The event timestamp is the report timestamp, not a separately
+measured enforcement time. Applied outcomes are agent reports, not verification
+of physical containment or current device safety.
+
+Run `python -m pytest tests/test_audit_explanations.py ml/tests/test_digest.py -q`
+for the authenticated detection, containment, Restore, acknowledgement, and digest
+round trip. The PostgreSQL audit test in `tests/test_database.py` is opt-in with
+`SECURIOT_TEST_DATABASE=1` and rolls back its writes.
+
 ## Local start
 
 From the repository root, copy `.env.example` to `.env` and `api/.env.example` to

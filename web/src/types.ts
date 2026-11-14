@@ -13,5 +13,5 @@ export interface NetworkEvent {
 export interface StorageStatus { mode: 'memory' | 'postgres' }
 export interface AuditEntry {
   id: string; ts: string; actor: string; action: string;
-  mac?: string; command_id?: string; outcome: 'requested' | 'applied' | 'failed' | 'would_have';
+  mac?: string; command_id?: string; event_id?: string; outcome: 'requested' | 'applied' | 'failed' | 'would_have';
 }

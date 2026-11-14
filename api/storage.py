@@ -63,9 +63,9 @@ class MemoryDatabase:
         return True
 
     def audit(self):
+        from api.audit_history import merge_history
         with self.lock:
-            rows = self._rows('audit')
-            rows = sorted(rows, key=lambda row:(row['ts'],row['id']), reverse=True)[:1000]
+            rows = merge_history(self._rows('audit'), self._rows('events'))
             return [{key:value for key,value in row.items() if value is not None} for row in rows]
 
     def user_by_name(self, username):
