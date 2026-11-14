@@ -42,6 +42,10 @@ export interface SecurEvent {
   actions_taken: ActionName[];
   would_have: ActionName[];
   source: "agent" | "simulator";
+  // GET /events adds these (EventView). "ready" = Gemini wrote it; "pending" = Gemini
+  // is still working and `explanation` is the API's template; "template" = Gemini off.
+  explanation?: { plain_language: string; recommended_next_step: string };
+  explanation_status?: "pending" | "ready" | "template";
 }
 
 export interface Policy {

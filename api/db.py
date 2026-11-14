@@ -16,7 +16,13 @@ class Database:
 
     def ready(self):
         with self.connect() as conn:
-            return conn.execute("SELECT version FROM schema_migrations WHERE version = 2").fetchone() is not None
+            return conn.execute("SELECT version FROM schema_migrations WHERE version = 3").fetchone() is not None
+
+    def audit(self):
+        with self.connect() as conn:
+            rows = conn.execute('SELECT id,ts,actor,action,mac,command_id,outcome FROM audit ORDER BY ts DESC,id DESC LIMIT 1000').fetchall()
+            return [{key:(str(value) if key == 'mac' else value) for key,value in row.items() if value is not None}
+                    for row in rows]
 
     def user_by_name(self, username):
         with self.connect() as conn:
@@ -90,6 +96,7 @@ class Database:
                     raise HTTPException(409, 'Command already acknowledged differently')
                 return
             conn.execute('UPDATE commands SET status = %s, ack_ts = %s, detail = %s WHERE id = %s', (ack.status, ack.ts, ack.detail, command_id))
+            conn.execute('UPDATE audit SET outcome = %s, ts = %s WHERE command_id = %s', (ack.status, ack.ts, command_id))
 
     def devices(self):
         from api.telemetry import Device
@@ -126,9 +133,12 @@ class Database:
                     WHERE status='pending' AND action IN ('block_wan','quarantine')
                     AND (%s OR mac::text = ANY(%s) OR NOT (%s::jsonb ->> action)::boolean)""",
                     (body.learning_mode, body.protected_macs, Jsonb(data['ladder'])))
+                conn.execute("""UPDATE audit SET outcome='failed', ts=now()
+                    WHERE outcome='requested' AND command_id IN
+                    (SELECT id FROM commands WHERE status='cancelled')""")
             return {'etag':str(row['revision'] + int(changed)), 'policy':data}
 
-    def create_command(self, body, command_id):
+    def create_command(self, body, command_id, actor='judge'):
         from api.control import check_action, check_retry
         with self.connect() as conn:
             # Same lock as policy writes makes validation and enqueue atomic.
@@ -145,6 +155,8 @@ class Database:
             check_action(body, row, known)
             command = conn.execute('INSERT INTO commands(id,action,mac) VALUES (%s,%s,%s) RETURNING id,created_at,action,mac',
                                    (command_id, body.action, body.mac)).fetchone()
+            conn.execute("INSERT INTO audit(id,actor,action,mac,command_id,outcome) VALUES (%s,%s,%s,%s,%s,'requested')",
+                         (command_id, actor, body.action, body.mac, command_id))
             if command['mac'] is None:
                 del command['mac']
             return command

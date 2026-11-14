@@ -34,13 +34,25 @@ prefixes. `/api/docs` describes only implemented routes, not promised features.
 | GET /sync?etag= | → Sync, or 304 if unchanged and no pending commands | X-API-Key; H8–12 |
 | POST /commands/{id}/ack | Ack → 204 | X-API-Key; H8–12 |
 | GET /devices | → Device[] | Bearer JWT; H8–12 |
-| GET /events | → Event[] newest first | Bearer JWT; H8–12 |
+| GET /events | → EventView[] newest first | Bearer JWT; H8–12 plus H16–20 explanations |
 | POST /actions | Action → Command (202) | Bearer JWT; implemented H12–16 |
 | GET /policy | → Policy | Bearer JWT; implemented H12–16 |
 | PUT /policy | PolicyInput → Policy | Bearer JWT; implemented H12–16 |
 | GET /storage | → StorageStatus | Public; implemented H12–16 |
 | POST /audit/run | empty → {summary: string} | Bearer JWT; H16–20 |
 | GET /audit | → AuditEntry[] newest first | Bearer JWT; H16–20 |
+
+Event views always include a template explanation. When Gemini is configured,
+the first read schedules Person C's synchronous `explain(event, device)` function
+off the request path and returns `explanation_status: pending`; later reads return
+the event-ID-cached result as `ready`. Missing credentials return `template` and
+never delay event ingestion or reads.
+
+Audit contains four `seeded-demo` rows plus command lifecycle rows. `/actions`
+records `requested`; agent acknowledgement changes the same row to `applied` or
+`failed`. Restore is a queued command and the audit does not claim success until
+the agent acknowledges it. `/audit/run` passes the newest 1000 audit rows to Person
+C's `digest(history)` function. Until that function exists, the route returns 503.
 
 JWT login and the database schema are implemented. Unknown business routes return
 404 rather than pretend to ingest or enforce. Login accepts JSON username/password,

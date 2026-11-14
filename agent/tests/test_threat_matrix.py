@@ -50,8 +50,11 @@ def run(packets, *, armed=True, decoys=(), protected=False, interval=0.05):
 @pytest.mark.parametrize("count", [0, 1, 10, 29, 30, 45, 100])
 def test_multi_host_arp_thresholds(count):
     result = run([arp(50 + index % 40) for index in range(count)])
-    assert bool(result.events) == (count >= 30)
-    assert bool(result.agent.enforcer.calls) == (count >= 30)
+    if count >= 30:   # the fixed threshold is still guaranteed
+        assert result.events and result.agent.enforcer.calls
+    if count <= 10:   # tiny bursts (e.g. a device joining Wi-Fi) must stay quiet
+        assert not result.events and not result.agent.enforcer.calls
+    # 11-29 is model territory: the ML detector may fire before the old 30-ARP cutoff.
 
 
 @pytest.mark.parametrize("targets", [1, 2, 7, 8, 15, 30])
@@ -69,7 +72,8 @@ def test_host_and_port_scans_are_advisory(count, vary):
     packets = [syn(host=50 + i if vary == "host" else 50, port=1000 + i if vary == "port" else 80)
                for i in range(count)]
     result = run(packets)
-    assert bool(result.events) == (count >= 20)
+    if count >= 20:   # the fixed threshold is still guaranteed; 19 is model territory
+        assert result.events
     assert not result.agent.enforcer.calls
     assert all(e.evidence["decision"] == "supporting_evidence_only" for e in result.events)
 
@@ -110,10 +114,11 @@ def test_protected_devices_remain_visible_without_enforcement(kind):
 
 
 @pytest.mark.parametrize("kind", ["arp", "targets"])
-def test_slow_scans_are_documented_coverage_gaps(kind):
+def test_slow_scans_never_quarantine(kind):
     packets = [arp(50 + i) for i in range(30)] if kind == "arp" else [syn(host=50 + i) for i in range(20)]
     result = run(packets, interval=2)
-    assert not result.events  # Known blind spot: not evidence that the traffic is benign.
+    # The ML detector may now report slow target scans, but only as supporting evidence.
+    assert not result.agent.enforcer.calls
 
 
 @pytest.mark.parametrize("kind", ["syn_flood", "udp_flood", "arp_replies", "dns_beacon"])

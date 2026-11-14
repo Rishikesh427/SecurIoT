@@ -47,7 +47,11 @@ export function FixSheet({
           </div>
 
           <section>
-            <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase tracking-wide text-ink-3">Why it matters</h3>
+            <div className="mb-2 flex items-baseline justify-between px-1">
+              <h3 className="text-[13px] font-semibold uppercase tracking-wide text-ink-3">Why it matters</h3>
+              {issue.explainedBy === "gemini" && <span className="text-[12px] text-ink-3">Explained by Gemini</span>}
+              {issue.explainedBy === "pending" && <span className="text-[12px] text-ink-3">Gemini is writing an explanation</span>}
+            </div>
             <Card className="px-5 py-4 text-[15px] leading-relaxed text-ink">{issue.why}</Card>
           </section>
 

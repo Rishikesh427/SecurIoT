@@ -90,7 +90,10 @@ export function DeviceDetail({
             </div>
           )}
 
-          <Section title="Summary">
+          <Section
+            title="Summary"
+            aside={"source" in summary ? (summary.source === "gemini" ? "Explained by Gemini" : summary.source === "pending" ? "Gemini is writing an explanation" : undefined) : undefined}
+          >
             <Card className="px-5 py-4">
               <p className="text-[15px] leading-relaxed text-ink">{summary.body}</p>
               <p className="mt-3 text-[14px] leading-relaxed text-ink-2">{summary.next}</p>

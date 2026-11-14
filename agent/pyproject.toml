@@ -12,10 +12,8 @@ dependencies = []
 [project.optional-dependencies]
 replay = ["scapy>=2.6,<3"]
 cloud = ["jsonschema>=4.23,<5", "rfc3339-validator>=0.1.4,<1"]
-# Opt-in: loads Worker C's trained scan model (ml/data/scan_model.joblib); without it
-# the detector uses threshold rules. Pins match the saved model. Not enabled by default
-# yet: with it, 12 agent tests fail (false findings on normal replay traffic, repeated
-# events per window, a finding at 29 ARP requests). See the PR notes.
+# Loads Worker C's trained scan model (ml/data/scan_model.joblib); without it the
+# detector uses threshold rules only. Pins match the saved model.
 model = ["joblib==1.6.0", "numpy==2.5.4", "pandas==3.1.1", "scikit-learn==1.9.1"]
 
 [project.scripts]

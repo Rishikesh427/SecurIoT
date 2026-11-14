@@ -33,13 +33,23 @@ export interface Summary {
   body: string;
   next: string;
   spoken: string;
+  source: "gemini" | "pending" | "local";
+}
+
+/** Gemini's text once the API has it; our own plain wording until then. */
+function withGemini(e: SecurEvent, local: Omit<Summary, "source">): Summary {
+  if (e.explanation_status === "ready" && e.explanation) {
+    const { plain_language, recommended_next_step } = e.explanation;
+    return { ...local, body: plain_language, next: recommended_next_step, spoken: plain_language, source: "gemini" };
+  }
+  return { ...local, source: e.explanation_status === "pending" ? "pending" : "local" };
 }
 
 export function summarize(incident: SecurEvent, device: Device | undefined): Summary {
   const name = device ? shortLabel(device.label).toLowerCase() : "a device";
   const what = incident.kind === "decoy_touch" ? "probing other devices on your network, including a decoy" : "scanning other devices on your network";
   const contained = incident.actions_taken.length > 0;
-  return contained
+  return withGemini(incident, contained
     ? {
         headline: "Threat contained",
         body: `Your ${name} started ${what}, which is typical of malware. It's been isolated from your network.`,
@@ -51,7 +61,7 @@ export function summarize(incident: SecurEvent, device: Device | undefined): Sum
         body: `Your ${name} started ${what}, which is typical of malware. Learning mode is on, so SecurIoT only watched. With protection on, it would have been isolated.`,
         next: "Turn on automatic protection so threats like this are isolated right away.",
         spoken: `Warning. Your ${name} is attacking other devices. Learning mode is on, so it was not isolated.`,
-      };
+      });
 }
 
 export function deviceSummary(d: Device): { body: string; next: string } {

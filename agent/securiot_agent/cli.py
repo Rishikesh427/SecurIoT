@@ -14,11 +14,14 @@ def main(argv: list[str] | None = None) -> int:
                       help="Walk through synthetic summary observations.")
     mode.add_argument("--replay", type=Path, metavar="CAPTURE",
                       help="Read Ethernet packets from an offline PCAP/PCAPNG file.")
+    mode.add_argument("--live", metavar="IFACE",
+                      help="Sniff a live interface (needs root). Enforcement stays mocked.")
     parser.add_argument("--devices", type=Path,
                         default=Path(__file__).resolve().parents[1] / "fixtures" / "devices.json",
                         help="Known-device JSON for replay (default: generated fixture devices).")
     parser.add_argument("--detector", choices=("ml", "preview"), default="ml",
                         help="Replay detector: Worker C's package (default) or the legacy preview.")
+    parser.add_argument("--model-mode", choices=("required", "auto", "rules"), default="required", help="Require the trained artifact by default; auto reports fallback, rules explicitly disables it.")
     parser.add_argument("--arm", action="store_true",
                         help="Explicitly allow mock actions during the walkthrough; learning mode is the default.")
     parser.add_argument("--state-dir", type=Path,
@@ -39,12 +42,17 @@ def main(argv: list[str] | None = None) -> int:
         if args.connect:
             from .runner import run_connected
             run_connected(args.replay, args.devices, state_dir, args.api_url, os.environ["AGENT_API_KEY"],
-                          armed=args.arm, once=args.once, detector_factory=args.detector_factory, decoy_ips=args.decoy_ip)
+                          armed=args.arm, once=args.once, detector_factory=args.detector_factory, decoy_ips=args.decoy_ip, model_mode=args.model_mode)
         elif args.replay:
             # Keep the original summary demo usable without the optional Scapy install.
             from .replay import run_replay
 
-            run_replay(args.replay, args.devices, state_dir, args.arm, args.detector, args.decoy_ip)
+            run_replay(args.replay, args.devices, state_dir, args.arm, args.detector, args.decoy_ip, args.model_mode)
+        elif args.live:
+            from .live import run_live
+
+            run_live(args.live, args.devices, runtime_dir / "live" if not args.state_dir else args.state_dir,
+                     args.arm, args.decoy_ip, args.model_mode)
         else:
             run_demo(state_dir, args.arm)
     except ModuleNotFoundError as error:

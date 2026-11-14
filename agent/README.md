@@ -1,12 +1,26 @@
-# SecurIoT agent: packet replay, cloud loop, and evidence checks
+# SecurIoT agent: packet capture, model adapter, and cloud loop
 
-This is Worker A's offline development slice from the [V3 build plan](https://docs.google.com/document/d/1VMV0LMaaC6DO5OXcdFnvUauciE278WBpgJ2sXGo0xIM/edit?tab=t.n4h3all1s3x3):
+This is Worker A's agent development slice from the [V3 build plan](https://docs.google.com/document/d/1VMV0LMaaC6DO5OXcdFnvUauciE278WBpgJ2sXGo0xIM/edit?tab=t.n4h3all1s3x3):
 
 **Packets → local detector/scorer → safety decision → mock action → durable event → optional cloud delivery.**
 
-It runs with Python 3.11+. The original summary walkthrough uses only the standard library; packet-file replay uses optional Scapy. The optional connected runner uploads to the cloud. Live capture and real firewall changes remain future work.
+It runs with Python 3.11+. The original summary walkthrough uses only the standard library; packet replay and live capture use Scapy. The optional connected replay runner uploads to the cloud. Real firewall changes remain future work.
 
-**Current stage: standalone offline agent.** It reads packets from files, calculates traffic features, evaluates preview scan rules, applies safety checks, performs mock actions, and saves events. Worker C's detection/scoring is connected for offline replay; Worker B's ingest/sync/ack routes are connected through the optional runner; Linux network controls remain pending. See [how the tracks fit together](INTEGRATION.md).
+**Current stage: replay and live capture with mock enforcement.** It calculates traffic features, runs Worker C's rules and trained model, applies safety checks, and saves events. Worker B's ingest/sync/ack routes are connected through the optional replay runner. Real TCP decoy listeners are available; Linux network controls remain pending. See [how the tracks fit together](INTEGRATION.md).
+
+## Live capture and decoys
+
+The upstream live mode and decoy service are integrated. See
+[LIVE_DECOYS.md](LIVE_DECOYS.md) for Linux hotspot commands and an isolated,
+real-packet Docker test that works on this Mac. Enforcement remains mocked.
+
+## Arrived model
+
+The replay CLI now requires C's actual model by default and prints its loading
+status, threshold, feature order, artifact hash, and prediction count. See
+[MODEL_HANDOFF.md](MODEL_HANDOFF.md) for the verified integration and data limits.
+Use `--model-mode rules` for rule-only comparisons. No retraining is needed to
+load the current artifact; real Pi transfer evaluation remains pending.
 
 ## Cloud runner and expanded threat tests
 
@@ -170,16 +184,16 @@ The tests use temporary directories, generated packets, and a controllable clock
 
 ## Later milestones
 
-1. Extend the current C adapter with explicitly configured decoy hits and agreed baseline intervals.
-2. Add Scapy packet capture/discovery and decoy listeners on the Linux router.
-3. Add nftables enforcement and a local panic command, with rollback tests on Linux.
-4. Verify the connected runner against the deployed API/database and integrate dashboard action creation.
-5. Add the local API/web bundle, systemd deployment, and optional smart-plug mapping.
+1. Verify live capture, decoy IP assignments, and device discovery on the physical Linux hotspot.
+2. Add nftables/hostapd enforcement and a local panic command, with rollback tests on Linux.
+3. Connect live capture to the existing cloud polling loop and verify the deployed database.
+4. Add the local API/web bundle, systemd deployment, and optional smart-plug mapping.
+5. Evaluate the trained model against real Pi demo traffic and agree on baseline intervals.
 
-The production network and cloud components are intentionally still pending. This directory owns the agent; the other team tracks remain in `api/`, `ml/`, `web/`, `/contract`, and `/sim`.
+Physical hotspot deployment and production cloud verification remain pending. This directory owns the agent; the other team tracks remain in `api/`, `ml/`, `web/`, `/contract`, and `/sim`.
 
 Current guards: protected devices still raise alerts; only automatic actions are blocked.
 ARP quantity needs at least eight distinct targets for containment. Explicit decoy
-IPs can be passed repeatedly with `--decoy-ip`. C's current rules remain the default;
-the trained artifact is pending. Vulnerability flags distinguish reported/simulated
+IPs can be passed repeatedly with `--decoy-ip`. The CLI requires C's trained artifact by default;
+`--model-mode rules` selects the rule-only path. Vulnerability flags distinguish reported/simulated
 facts and candidate CVEs, and do not claim a local scan or firmware verification.

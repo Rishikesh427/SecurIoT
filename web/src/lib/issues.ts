@@ -2,7 +2,7 @@
 // a severity, a plain-language title, why it matters, steps, and a fix action.
 import type { DashDevice, Policy, SecurEvent } from "../types";
 import { isContained, shortLabel, toMs } from "./format";
-import { cleanupSteps, isIncident } from "./incident";
+import { cleanupSteps, isIncident, summarize } from "./incident";
 import type { Severity } from "./severity";
 
 export type FixAction = "turn_on_protection" | "isolate" | "protect_and_isolate" | "restore";
@@ -17,6 +17,7 @@ export interface Issue {
   mac?: string;
   action?: { kind: FixAction; label: string };
   technical: string[]; // jargon lives here, shown only in details
+  explainedBy?: "gemini" | "pending" | "local";
 }
 
 const RECENT_MS = 10 * 60_000;
@@ -33,12 +34,18 @@ export function deriveIssues(
   // 1. Devices that are cut off right now: contained, not fixed.
   for (const d of devices.filter((x) => isContained(x.status))) {
     const label = shortLabel(d.label);
+    const incident = events.find((e) => e.mac === d.mac && e.actions_taken.length);
+    const ai = incident ? summarize(incident, d) : null;
     issues.push({
-      id: `contained:${d.mac}:${events.find((e) => e.mac === d.mac && e.actions_taken.length)?.id ?? d.last_seen}`,
+      id: `contained:${d.mac}:${incident?.id ?? d.last_seen}`,
       severity: "critical",
       title: `${label} was cut off`,
       summary: `It started attacking your network, so SecurIoT isolated it. It's still infected until you clean it up.`,
-      why: "Isolation stops the attack from spreading, but whatever infected the device is still on it.",
+      why:
+        ai?.source === "gemini"
+          ? `${ai.body} Isolation stops the attack from spreading, but whatever infected the device is still on it.`
+          : "Isolation stops the attack from spreading, but whatever infected the device is still on it.",
+      explainedBy: ai?.source,
       steps: cleanupSteps(d),
       mac: d.mac,
       action: opts.canAct ? { kind: "restore", label: "Restore when clean" } : undefined,

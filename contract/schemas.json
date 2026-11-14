@@ -84,6 +84,29 @@
         "source": {"enum": ["agent", "simulator"]}
       }
     },
+    "Explanation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["plain_language", "recommended_next_step"],
+      "properties": {
+        "plain_language": {"type": "string"},
+        "recommended_next_step": {"type": "string"}
+      }
+    },
+    "EventView": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "mac", "ts", "kind", "evidence", "actions_taken", "would_have", "source", "explanation", "explanation_status"],
+      "properties": {
+        "id": {"type": "string", "format": "uuid"}, "mac": {"$ref": "#/$defs/Mac"},
+        "ts": {"type": "string", "format": "date-time"},
+        "kind": {"enum": ["scan_arp", "scan_targets", "decoy_touch", "new_domain", "new_device"]},
+        "evidence": {"type": "object"},
+        "actions_taken": {"type": "array", "items": {"$ref": "#/$defs/ActionName"}},
+        "would_have": {"type": "array", "items": {"$ref": "#/$defs/ActionName"}},
+        "source": {"enum": ["agent", "simulator"]},
+        "explanation": {"$ref": "#/$defs/Explanation"},
+        "explanation_status": {"enum": ["pending", "ready", "template"]}
+      }
+    },
     "Ingest": {
       "type": "object", "additionalProperties": false, "required": ["devices", "events"],
       "properties": {
@@ -141,6 +164,10 @@
         "mac": {"$ref": "#/$defs/Mac"}, "command_id": {"type": "string", "format": "uuid"},
         "outcome": {"enum": ["requested", "applied", "failed", "would_have"]}
       }
+    },
+    "AuditRunResponse": {
+      "type": "object", "additionalProperties": false, "required": ["summary"],
+      "properties": {"summary": {"type": "string", "minLength": 1}}
     }
   }
 }

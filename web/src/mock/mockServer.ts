@@ -102,6 +102,25 @@ function guard() {
   if (state.offline) throw new Error("Cloud unreachable (mock outage)");
 }
 
+/** Stand-in for GET /events' explanation fields: Gemini "finishes" ~2 s after an incident. */
+function mockExplanation(e: SecurEvent, now: number): Pick<SecurEvent, "explanation" | "explanation_status"> {
+  const template = { plain_language: `Device showed ${e.kind} behavior.`, recommended_next_step: "Review the device." };
+  if (!e.actions_taken.length && !e.would_have.length) return { explanation: template, explanation_status: "template" };
+  if (now - Date.parse(e.ts) < 2500) return { explanation: template, explanation_status: "pending" };
+  return {
+    explanation_status: "ready",
+    explanation: e.actions_taken.length
+      ? {
+          plain_language: "Your living room camera started probing other devices, including a decoy, which is typical of malware. It's been isolated from your network.",
+          recommended_next_step: "Unplug and replug the camera, change its default password, then restore it.",
+        }
+      : {
+          plain_language: "Your living room camera started probing other devices, including a decoy, which is typical of malware. Protection is off, so it is still connected.",
+          recommended_next_step: "Turn on automatic protection and isolate the camera.",
+        },
+  };
+}
+
 const delay = (ms = 120) => new Promise((r) => setTimeout(r, ms));
 const byTsDesc = <T extends { ts: string }>(a: T, b: T) => b.ts.localeCompare(a.ts);
 
@@ -124,7 +143,8 @@ export const mockServer = {
   async getEvents(): Promise<SecurEvent[]> {
     guard();
     await delay();
-    return clone([...state.events].sort(byTsDesc).slice(0, 100));
+    const now = Date.now();
+    return clone([...state.events].sort(byTsDesc).slice(0, 100)).map((e) => ({ ...e, ...mockExplanation(e, now) }));
   },
 
   async getPolicy(): Promise<Policy> {
