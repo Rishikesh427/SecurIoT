@@ -49,3 +49,13 @@ def test_decoy_single_hit():
 
 def test_decoy_ignored_for_protected():
     assert mk().observe("AA:AA:AA:AA:AA:AA", 1000, decoy_hits=[23]) is None
+
+def test_arp_score_ramps_through_tiers():
+    d = mk()
+    for i in range(29):
+        d.observe("BB:BB:BB:BB:BB:BB", 1000 + i * 0.1, arp=1)
+    first = d.observe("BB:BB:BB:BB:BB:BB", 1003.0, arp=1)
+    assert first["kind"] == "scan_arp" and 0.95 <= first["anomaly"] < 0.97
+    for i in range(30):
+        last = d.observe("BB:BB:BB:BB:BB:BB", 1003.1 + i * 0.05, arp=1)
+    assert last["anomaly"] >= 0.99

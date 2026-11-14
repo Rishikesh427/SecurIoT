@@ -72,7 +72,7 @@ class CloudLoop:
 
     def ack(self, status, detail):
         return {"status": status, "ts": datetime.fromtimestamp(self.agent.clock(), timezone.utc).isoformat(),
-                "detail": detail + " (mock enforcement)"}
+                "detail": detail + (" (mock enforcement)" if self.agent.enforcer.simulated else " (live enforcement)")}
 
     def apply_policy(self, policy):
         protected = self.local_protected | {normalize_mac(mac) for mac in policy["protected_macs"]}
