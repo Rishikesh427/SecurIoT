@@ -62,15 +62,21 @@ class Database:
 
     def sync(self):
         with self.connect() as conn:
-            conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ')
-            policy = conn.execute('SELECT * FROM policy WHERE id = true').fetchone()
-            if policy is None:
+            # One statement gives policy and pending commands the same snapshot.
+            row = conn.execute("""
+                SELECT jsonb_build_object(
+                    'etag', revision::text,
+                    'policy', jsonb_build_object('learning_mode', learning_mode,
+                        'protected_macs', protected_macs, 'ladder', ladder),
+                    'commands', (SELECT COALESCE(jsonb_agg(jsonb_strip_nulls(
+                        jsonb_build_object('id', c.id, 'created_at', c.created_at,
+                            'action', c.action, 'mac', c.mac)) ORDER BY c.created_at, c.id), '[]'::jsonb)
+                        FROM commands c WHERE c.status = 'pending')
+                ) AS payload FROM policy WHERE id = true
+            """).fetchone()
+            if row is None:
                 raise HTTPException(503, 'Policy not initialized')
-            commands = conn.execute("SELECT id, created_at, action, mac FROM commands WHERE status = 'pending' ORDER BY created_at, id").fetchall()
-            for command in commands:
-                if command['mac'] is None:
-                    del command['mac']
-            return {'etag': str(policy['revision']), 'policy': {k: policy[k] for k in ('learning_mode', 'protected_macs', 'ladder')}, 'commands': commands}
+            return row['payload']
 
     def ack(self, command_id, ack):
         with self.connect() as conn:

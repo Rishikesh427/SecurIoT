@@ -73,6 +73,10 @@ the UUID-to-timestamp invariant; the schema alone does not reject a reused UUID
 with a different timestamp. Foreign keys from events to devices are intentionally
 absent so an event can arrive before its device snapshot.
 
+H8–12 now enforces that invariant in the ingest transaction: concurrent API
+ingests serialize the UUID check, exact retries are accepted without duplicates,
+and changed content for the same UUID returns 409 with the whole batch rolled back.
+
 Login sends JSON to POST `/api/auth/login`:
 
 For a direct PowerShell login check, run `./scripts/Test-JudgeLogin.ps1` from the
@@ -159,6 +163,13 @@ policy editing, audit endpoints, scoring, enforcement, and React UI are later wo
 Run platform checks with `python -m pytest -q tests`; this avoids collecting the
 separate ML package before it has been installed. Enable SECURIOT_TEST_DATABASE=1
 for the rollback-only real database ingest/ack tests as well.
+
+After starting Compose, check the deployed service without creating demo data:
+`python -m scripts.check_platform --url http://localhost:8080`.
+Use the printed tunnel HTTPS origin instead to verify public transport.
+This check parses credentials through dotenv and does not print passwords/tokens.
+The broader agent/API/ML suite uses `agent/requirements-test.txt` and runs with
+`python -m pytest -q tests agent/tests ml/tests`.
 No Git commits are required by these instructions.
 
 References: [Caddy automatic HTTPS](https://caddyserver.com/docs/automatic-https),
