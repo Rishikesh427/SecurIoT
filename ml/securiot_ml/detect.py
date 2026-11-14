@@ -2,6 +2,7 @@ import time, collections
 
 DEFAULTS = {"arp_threshold": 30, "pair_threshold": 20, "window": 10, "warmup": 30}
 MIN_SAFE = {"arp_threshold": 10, "pair_threshold": 8}  # cloud policy can't go below these
+TELNET_PORTS = {23, 2323}
 
 class Detector:
     def __init__(self, policy=None, ignore=(), baselines=None):
@@ -24,9 +25,8 @@ class Detector:
         while dq and now - dq[0][0] > self.cfg["window"]:
             dq.popleft()
 
-    def observe(self, mac, ts=None, arp=0, pairs=(), nbytes=0):
-        """Call per MAC every ~1s. pairs = iterable of (dst_ip, dst_port).
-        Returns an event dict or None."""
+    def observe(self, mac, ts=None, arp=0, pairs=(), nbytes=0, decoy_hits=()):
+        """decoy_hits = dst ports this MAC touched on a decoy this second."""
         now = ts or time.time()
         mac = mac.upper()
         if mac in self.ignore or now - self.t0 < self.cfg["warmup"]:
@@ -39,11 +39,18 @@ class Detector:
         self._trim(a, now)
         self._trim(p, now)
         n_arp, distinct = len(a), len({x[1] for x in p})
-        if n_arp >= self.cfg["arp_threshold"] or distinct >= self.cfg["pair_threshold"]:
-            conf = min(1.0, max(n_arp / (2 * self.cfg["arp_threshold"]),
-                                distinct / (2 * self.cfg["pair_threshold"])) + 0.5)
-            return {"kind": "scan", "anomaly": round(conf, 2), "ts": now,
-                    "evidence": {"arp_in_window": n_arp, "distinct_targets": distinct}}
+        ev = {"arp_in_window": n_arp, "distinct_targets": distinct}
+        hits = sorted(set(decoy_hits))
+        if hits:   # fires on a single hit
+            top = 1.0 if any(h in TELNET_PORTS for h in hits) else 0.9
+            return {"kind": "decoy_touch", "anomaly": top, "ts": now,
+                    "evidence": {**ev, "decoy_ports": hits}}
+        thr = self.cfg["arp_threshold"]
+        if n_arp >= thr:
+            return {"kind": "scan_arp", "ts": now, "evidence": ev,
+                    "anomaly": round(min(1.0, n_arp / (2 * thr) + 0.5), 2)}
+        if distinct >= self.cfg["pair_threshold"]:   # supporting only
+            return {"kind": "scan_targets", "anomaly": 0.3, "ts": now, "evidence": ev}
         return self._zscore(mac, nbytes, now)
 
     def _zscore(self, mac, nbytes, now):
