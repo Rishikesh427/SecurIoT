@@ -2,5 +2,11 @@
 name = "securiot_ml"
 version = "0.1"
 requires-python = ">=3.10"
+
+[project.optional-dependencies]
+# Runtime for the trained scan model. scikit-learn must match the version that
+# saved data/scan_model.joblib. Training-only extras live in requirements-model.txt.
+model = ["joblib==1.6.0", "numpy==2.5.4", "pandas==3.1.1", "scikit-learn==1.9.1"]
+
 [tool.setuptools]
 packages = ["securiot_ml"]

@@ -1,0 +1,79 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Inter, Arial, sans-serif;
+
+  --color-ink: #1d1d1f;
+  --color-ink-2: #6e6e73;
+  --color-ink-3: #86868b;
+  --color-hairline: rgba(0, 0, 0, 0.08);
+  --color-fill: #f5f5f7;
+  --color-fill-2: #e8e8ed;
+
+  --color-ok: #28a745;
+  --color-warn: #c77700;
+  --color-bad: #e5332a;
+  /* Severity scale: each level has its own color, icon and label. */
+  --color-sev-critical: #e5332a;
+  --color-sev-high: #e8590c;
+  --color-sev-medium: #b07d00;
+  --color-sev-low: #86868b;
+
+  --ease-apple: cubic-bezier(0.32, 0.72, 0, 1);
+
+  --animate-sheet-in: sheet-in 420ms var(--ease-apple);
+  --animate-fade-in: fade-in 240ms ease-out;
+  --animate-rise-in: rise-in 360ms var(--ease-apple);
+  --animate-row-in: row-in 520ms var(--ease-apple);
+  --animate-pulse-ring: pulse-ring 1.4s ease-out 3;
+  --animate-expand: expand 260ms var(--ease-apple);
+
+  @keyframes row-in {
+    from { opacity: 0; transform: translateX(-16px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes pulse-ring {
+    0% { box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.35); }
+    100% { box-shadow: 0 0 0 14px rgba(40, 167, 69, 0); }
+  }
+  @keyframes expand {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: none; }
+  }
+
+  @keyframes sheet-in {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+  }
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes rise-in {
+    from { opacity: 0; transform: translateY(8px) scale(0.99); }
+    to { opacity: 1; transform: none; }
+  }
+}
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  margin: 0;
+  background: #ffffff;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.01em;
+}
+
+::selection {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+input[type="range"] {
+  accent-color: var(--color-ink);
+}
