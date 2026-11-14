@@ -77,6 +77,6 @@ def router(current_user):
     @routes.post('/actions', status_code=202)
     def action(body: ActionRequest, request: Request,
                idempotency_key: UUID | None = Header(default=None), user=Depends(current_user)):
-        return request.app.state.db.create_command(body, idempotency_key or uuid4())
+        return request.app.state.db.create_command(body, idempotency_key or uuid4(), user['username'])
 
     return routes

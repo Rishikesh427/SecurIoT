@@ -24,11 +24,20 @@ class MemoryDatabase:
             CREATE TABLE devices (id TEXT PRIMARY KEY, payload TEXT NOT NULL);
             CREATE TABLE events (id TEXT PRIMARY KEY, payload TEXT NOT NULL);
             CREATE TABLE commands (id TEXT PRIMARY KEY, payload TEXT NOT NULL, status TEXT NOT NULL, ack TEXT);
+            CREATE TABLE audit (id TEXT PRIMARY KEY, payload TEXT NOT NULL);
         ''')
         self.policy = Policy().model_dump()
         self.revision = 1
         self.epoch = uuid4().hex
         self.users = {}
+        now = datetime.now(timezone.utc)
+        seeded = [('301','notify','applied'), ('302','block_wan','would_have'),
+                  ('303','quarantine','would_have'), ('304','restore','applied')]
+        for index, (suffix, action, outcome) in enumerate(seeded, 1):
+            entry = {'id':f'00000000-0000-4000-8000-000000000{suffix}',
+                     'ts':now.replace(microsecond=0).isoformat(), 'actor':'seeded-demo',
+                     'action':action, 'mac':None, 'command_id':None, 'outcome':outcome}
+            self.conn.execute('INSERT INTO audit VALUES (?,?)', (entry['id'], json.dumps(entry)))
         password = settings.judge_password
         if len(password) >= 16 and not password.startswith('GENERATE_'):
             user_id = uuid5(NAMESPACE_URL, 'securiot-demo:' + settings.judge_username)
@@ -52,6 +61,12 @@ class MemoryDatabase:
 
     def ready(self):
         return True
+
+    def audit(self):
+        with self.lock:
+            rows = self._rows('audit')
+            rows = sorted(rows, key=lambda row:(row['ts'],row['id']), reverse=True)[:1000]
+            return [{key:value for key,value in row.items() if value is not None} for row in rows]
 
     def user_by_name(self, username):
         with self.lock:
@@ -102,11 +117,15 @@ class MemoryDatabase:
                     if command['action'] in ('block_wan','quarantine') and (
                         data['learning_mode'] or command.get('mac') in data['protected_macs'] or not data['ladder'][command['action']]):
                         self.conn.execute("UPDATE commands SET status='cancelled' WHERE id=? AND status='pending'", (command['id'],))
+                        audit = self.conn.execute('SELECT payload FROM audit WHERE id=?', (command['id'],)).fetchone()
+                        if audit:
+                            entry = json.loads(audit[0]); entry.update(outcome='failed', ts=datetime.now(timezone.utc).isoformat())
+                            self.conn.execute('UPDATE audit SET payload=? WHERE id=?', (json.dumps(entry),command['id']))
                 self.policy = data
                 self.revision += 1
             return self.get_policy()
 
-    def create_command(self, body, command_id):
+    def create_command(self, body, command_id, actor='judge'):
         with self.lock, self.conn:
             key = str(command_id)
             old = self.conn.execute('SELECT payload FROM commands WHERE id=?', (key,)).fetchone()
@@ -120,6 +139,9 @@ class MemoryDatabase:
                 raise HTTPException(503, 'Demo command capacity reached')
             command = {'id':key, 'created_at':datetime.now(timezone.utc).isoformat(), **body.model_dump(exclude_none=True)}
             self.conn.execute("INSERT INTO commands VALUES (?,?,'pending',NULL)", (key,json.dumps(command)))
+            entry = {'id':key, 'ts':command['created_at'], 'actor':actor, 'action':body.action,
+                     'mac':body.mac, 'command_id':key, 'outcome':'requested'}
+            self.conn.execute('INSERT INTO audit VALUES (?,?)', (key,json.dumps(entry)))
             return command
 
     def sync(self):
@@ -140,6 +162,10 @@ class MemoryDatabase:
                     raise HTTPException(409, 'Command already acknowledged differently or cancelled')
                 return
             self.conn.execute('UPDATE commands SET status=?,ack=? WHERE id=?', (ack.status,ack.model_dump_json(),key))
+            audit = self.conn.execute('SELECT payload FROM audit WHERE id=?', (key,)).fetchone()
+            if audit:
+                entry = json.loads(audit[0]); entry.update(outcome=ack.status, ts=ack.ts.isoformat())
+                self.conn.execute('UPDATE audit SET payload=? WHERE id=?', (json.dumps(entry),key))
 
     def devices(self):
         with self.lock:
@@ -153,7 +179,7 @@ class MemoryDatabase:
 
 
 class Storage:
-    METHODS = {'ready','user_by_name','user_by_id','ingest','sync','ack','devices','events','get_policy','put_policy','create_command'}
+    METHODS = {'audit','ready','user_by_name','user_by_id','ingest','sync','ack','devices','events','get_policy','put_policy','create_command'}
     WRITES = {'ingest','ack','put_policy','create_command'}
 
     def __init__(self, primary, settings):

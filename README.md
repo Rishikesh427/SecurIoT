@@ -54,7 +54,8 @@ Agent → /ingest → DB → Scorer + Baseline → Gemini
 
 ## Try it
 
-For the implemented Person B H1–16 platform, login, telemetry, controls, and demo fallback, follow [platform setup](deploy/README.md).
+For the implemented Person B H1–20 platform, login, telemetry, controls, audit,
+asynchronous event explanations, and demo fallback, follow [platform setup](deploy/README.md).
 Shared schemas, demo fixtures, and hardware placeholders live in [contract](contract/README.md).
 
 The [React and TypeScript dashboard](web/README.md) provides login, searchable

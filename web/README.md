@@ -1,6 +1,7 @@
 # React dashboard
 
-React and TypeScript implement login, inventory, event feed, and storage status.
+React and TypeScript implement login, inventory, event explanations, restore
+requests, audit history/digest, and storage status.
 Tokens stay in memory; reloading signs out. No agent key is shipped to the browser.
 
 From the repository root, run `docker compose up --build -d` and open
@@ -14,7 +15,9 @@ uses the Docker stack at http://localhost.
 Run `npm.cmd run build --prefix web` for TypeScript checks and the production
 bundle, and `npm.cmd test --prefix web` for API-client tests.
 
-Policy and restore controls are a subsequent increment.
+Restore controls queue commands; the UI keeps their status as requested until
+the agent acknowledges them. The digest button reports a clear unavailable state
+until Person C provides `ml.securiot_ml.digest.digest(history)`.
 
 ## Offline fixture demo
 

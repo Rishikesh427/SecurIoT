@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import './dashboard.css';
+import './controls.css';
 import './tailwind.css';
 import { mockMode } from './config';
 
