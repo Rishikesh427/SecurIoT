@@ -227,7 +227,7 @@ class CloudTests(unittest.TestCase):
             from securiot_agent.runner import run_connected
             result = run_connected(ROOT / "agent/fixtures/arp_scan.pcap",
                 ROOT / "agent/fixtures/devices.json", Path(self.temp.name) / "runner",
-                url, "test-key", armed=True, once=True)
+                url, "test-key", armed=True, once=True, model_mode="rules")
             self.assertEqual(result.agent.inventory.get(MAC).status, "quarantined")
             self.assertGreaterEqual(len(self.db.event_rows), 1)
         finally:

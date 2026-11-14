@@ -81,7 +81,7 @@ class ReplayResult:
     capture_duration: float
 
 
-def replay_capture(path: Path, inventory: Inventory, storage: Storage, *, armed: bool = False, detector: str = "preview", ready=None, progress=None, detector_factory=None, decoy_ips=()) -> ReplayResult:
+def replay_capture(path: Path, inventory: Inventory, storage: Storage, *, armed: bool = False, detector: str = "preview", ready=None, progress=None, detector_factory=None, decoy_ips=(), model_mode="rules") -> ReplayResult:
     # Preserve packet spacing, but map an old capture onto this replay's clock.
     # This avoids moving persisted cooldown/grace timers backwards on reuse.
     saved = storage.load_state()
@@ -91,7 +91,7 @@ def replay_capture(path: Path, inventory: Inventory, storage: Storage, *, armed:
         implementation = detector_factory(clock=clock, protected_macs=[d.mac for d in inventory.devices.values() if d.protected])
     elif detector == "ml":
         from .ml_adapter import MLAdapter
-        implementation = MLAdapter(clock, (d.mac for d in inventory.devices.values() if d.protected))
+        implementation = MLAdapter(clock, (d.mac for d in inventory.devices.values() if d.protected), model_mode=model_mode)
     elif detector == "preview":
         implementation = ReplayPreviewDetector()
     else:
@@ -125,11 +125,12 @@ def replay_capture(path: Path, inventory: Inventory, storage: Storage, *, armed:
     return ReplayResult(agent, capture, collector, events, duration)
 
 
-def run_replay(path: Path, devices_path: Path, state_dir: Path, armed: bool, detector: str = "ml", decoy_ips=()) -> None:
+def run_replay(path: Path, devices_path: Path, state_dir: Path, armed: bool, detector: str = "ml", decoy_ips=(), model_mode="required") -> None:
     print("SECURIOT — OFFLINE PACKET REPLAY / MOCK ENFORCEMENT")
     print("Reads a file only. Capture timing is preserved; no live packets or firewall commands are sent.")
     print("The 30-second startup warmup uses capture time. --arm enables mock actions only.")
-    result = replay_capture(path, load_devices(devices_path), Storage(state_dir), armed=armed, detector=detector, decoy_ips=decoy_ips)
+    result = replay_capture(path, load_devices(devices_path), Storage(state_dir), armed=armed, detector=detector, decoy_ips=decoy_ips, model_mode=model_mode)
+    print("Model:", getattr(result.agent.detector, "model_status", {"active": False, "mode": "preview"}))
     print(f"\nCapture: {path}")
     print(f"Frames: {result.capture.frames_read}; Ethernet: {result.capture.ethernet_frames}; "
           f"unsupported/skipped: {result.capture.skipped_frames}")

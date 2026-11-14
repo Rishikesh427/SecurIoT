@@ -4,15 +4,21 @@ from collections.abc import Callable, Iterable
 from typing import Any
 
 from .vulnerabilities import VulnerabilityAssessor
-from securiot_ml.detect import Detector as MLDetector
+from securiot_ml.detect import Detector as MLDetector, MODEL_PATH
+from .trained import TrainedScanModel
 
 from .models import Device, Finding, Observation
 
 
 class MLAdapter:
-    def __init__(self, clock: Callable[[], float], protected_macs: Iterable[str] = ()):
+    def __init__(self, clock: Callable[[], float], protected_macs: Iterable[str] = (), model_mode="rules"):
         self.clock = clock
         self.detector = MLDetector()  # Protected devices remain visible; runtime prevents isolation.
+        if model_mode not in {"rules", "auto", "required"}:
+            raise ValueError("Invalid model mode")
+        self.trained = TrainedScanModel(model_mode, self.detector, MODEL_PATH)
+        self.model_status = self.trained.status
+        self.detector.model = None  # Prevent C's per-packet predictions/streak counting.
         self.vulnerabilities = VulnerabilityAssessor()
         # C currently initializes t0 from wall time. Align its public startup
         # timestamp to the injected replay clock; retain its 30-second warmup.
@@ -20,6 +26,10 @@ class MLAdapter:
         self.anomaly: dict[str, float] = {}
 
     def observe(self, observation: Observation) -> Finding | None:
+        warmed = self.clock() - self.detector.t0 >= self.detector.cfg["warmup"]
+        model_evidence = self.trained.observe(observation, warmed)
+        if observation.captured_at is not None and observation.bytes_out == 0:
+            return None
         result = self.detector.observe(
             observation.mac, ts=self.clock(),
             arp=observation.packet_arp_requests,
@@ -27,6 +37,14 @@ class MLAdapter:
             decoy_hits=observation.packet_decoy_hits,
             nbytes=observation.bytes_in + observation.bytes_out,
         )
+        if model_evidence is not None and (result is None or result["kind"] not in {"scan_arp", "decoy_touch"}):
+            score = model_evidence["ml_score"]
+            self.anomaly[observation.mac] = max(self.anomaly.get(observation.mac, 0), score)
+            return Finding("scan_targets", {**model_evidence, "detector": "trained_scan_model",
+                "captured_at": observation.captured_at, "input": "packet_capture",
+                "unique_syn_targets": len(observation.syn_targets), "arp_requests": observation.arp_requests,
+                "kind_mapping": "binary scan evidence mapped to the contract's scan_targets event"},
+                containment_allowed=False)
         if result is None:
             return None
         anomaly = float(result.get("anomaly", 0))

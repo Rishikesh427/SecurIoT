@@ -1,9 +1,9 @@
 # Agent cloud loop
 
-This is an offline packet-replay runner with mock enforcement. It uses C's current
+This is an offline packet-replay runner with mock enforcement. It uses C's arrived trained scan model plus
 rules/scorer and B's existing ingest/sync/ack contract. It can upload results,
 process queued Restore commands, and keep polling after replay reaches EOF.
-It does not provide a live sniffer, firewall backend, dashboard, or trained model.
+It does not provide a live sniffer, firewall backend, dashboard, or trained model training.
 
 ## Setup and run
 
@@ -75,8 +75,7 @@ tests seed its queue directly rather than pretend a dashboard click exists.
 
 ## Trained model handoff
 
-The trained artifact is still being produced. No model file format or feature
-order has been guessed. `--detector-factory package.module:factory` explicitly
+The arrived bundle is connected by the built-in adapter. See [MODEL_HANDOFF.md](MODEL_HANDOFF.md) for verified feature/timing compatibility and evaluation limits. `--detector-factory package.module:factory` explicitly
 loads an installed adapter, with no silent fallback if loading fails.
 
 Factory signature:
@@ -93,5 +92,23 @@ Assessments need type, eol, cloud_only, risk, band, confidence, and reasons; ins
 `ml_adapter.py`/`wire.py` for current local conventions. Normalized anomaly evidence
 is 0–1 locally and 0–40 points on the wire. Optional `anomaly` per-MAC state supplies
 that conversion. Training/prediction confidence must be calibrated before it is
-presented as a probability. C's existing rule adapter remains the named default
-until their artifact and feature/preprocessing specification arrive.
+presented as a probability. The built-in adapter now requires the model by default. Use `--model-mode rules`
+for deliberate rule regressions; a custom factory remains an alternative integration interface.
+
+
+## Model + Docker smoke test
+
+The arrived artifact is the default required model. Install the full
+`agent/requirements-test.txt` set, then run:
+
+```bash
+agent/.venv/bin/python agent/tools/smoke_stack.py
+```
+
+This builds the repository's actual API and React/Caddy images in a separate
+Compose project, uses ephemeral credentials/SQLite memory storage, verifies
+model predictions, upload, authenticated Restore, acknowledgement, and retry
+idempotency, then removes only its own containers/volumes. It does not read the
+configured database credentials into containers or change your saved `.env`.
+Build images/cache remain available for later runs. See MODEL_HANDOFF.md for
+training provenance, cadence compatibility, and remaining hardware tests.

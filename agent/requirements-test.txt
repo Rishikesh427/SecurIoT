@@ -2,3 +2,4 @@
 -r ../api/requirements-dev.txt
 -e ./ml
 -e ./agent[cloud,replay]
+-r ../ml/requirements-model.txt

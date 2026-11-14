@@ -63,3 +63,13 @@ normal captures. Separate capture sessions/devices between tuning and final test
 Report attack-episode recall, false alerts per device-hour, false quarantines, and
 latency. Real Pi visibility, Wi-Fi disconnection/restore, actual model transfer,
 and production network/database behavior remain separate tests.
+
+
+## Arrived-model update
+
+The trained binary scan model is connected; see [MODEL_HANDOFF.md](MODEL_HANDOFF.md).
+It adds advisory scan-like evidence, not a malware-family classifier. The broad
+matrix still deliberately runs in rules mode so baseline safety/coverage results
+aren't silently changed by artifact updates. `test_trained_model.py` separately
+checks the real artifact and its integration. Unsupported-family gaps above remain;
+the presence of a model is not proof those families are now detected.

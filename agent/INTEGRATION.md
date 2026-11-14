@@ -1,19 +1,20 @@
 # Where this agent fits
 
-## Stage after packet replay
+## Current integration stage
 
-We have a **standalone offline agent component**: actual packet-file decoding,
-per-device traffic measurements, Worker C detection/scoring, safety decisions, mock
-enforcement, restart state, and an audit/outbox. Generated capture fixtures make
-the whole chain reproducible on a development laptop.
+We have **replay and live capture with mock enforcement**: packet decoding,
+per-device traffic measurements, Worker C rules and trained model, safety decisions,
+restart state, and an audit/outbox. Real TCP decoy listeners and an isolated Docker
+capture test are available; generated fixtures keep replay reproducible.
 
 This is a collection/core milestone, not completion of Worker A's network track.
-Cloud delivery/command polling is implemented for the offline runner. Live
-discovery/capture, Linux enforcement, the local web server, and deployment tests remain pending.
+Cloud delivery/command polling is implemented for the replay runner. Live cloud
+polling, automatic discovery, Linux enforcement, the local web server, and physical
+hotspot deployment tests remain pending. See [LIVE_DECOYS.md](LIVE_DECOYS.md).
 
 ```mermaid
 flowchart LR
-    P[Saved packets now / live sniffer later] --> A[Worker A: collector]
+    P[Saved packets or live Scapy capture] --> A[Worker A: collector]
     A --> C[Worker C: detect and assess]
     C --> S[Worker A: safety policy]
     S --> E[Mock actions now / Linux firewall later]
@@ -25,8 +26,8 @@ flowchart LR
 ```
 
 The C/B/D boxes show the intended seams. The replay CLI now calls Worker C's actual detector and scorer locally and ends
-at the outbox. The preview is available only by explicit selection. B's cloud routes are connected by the optional runner; dashboard command creation
-and deployed database verification remain pending.
+at the outbox. The preview is available only by explicit selection. B's cloud routes and dashboard command creation are verified in an isolated Docker
+stack; deployed database verification remains pending.
 
 ## Worker C integration status: connected for offline replay
 
@@ -111,8 +112,8 @@ Gemini explanations are cloud-side and never decide whether to contain a device.
 
 ## Linux: replace the hardware-specific boundaries
 
-Feed the collector from a Scapy live-sniffer callback and replace `MockEnforcer`
-with an nftables backend. The safety/runtime and cloud adapters remain shared.
+The Scapy live-sniffer callback already feeds the collector. Replace `MockEnforcer`
+with an nftables/hostapd backend. The safety/runtime and cloud adapters remain shared.
 Then verify the real access point, traffic visibility, block/restore behavior,
 panic recovery, and offline operation on Linux. Packet replay cannot prove any
 of those hardware properties.
@@ -122,11 +123,11 @@ of those hardware properties.
 
 The optional `--connect` runner now serializes and validates records against the
 shared schema, calls B's real ingest/sync/ack routes, and journals uploads and
-command outcomes for retry. See [CLOUD_RUNNER.md](CLOUD_RUNNER.md). Live hardware, dashboard command creation, and deployed database verification
-remain pending.
+command outcomes for retry. See [CLOUD_RUNNER.md](CLOUD_RUNNER.md). Physical hotspot/Pi tests, live cloud polling,
+and deployed database verification remain pending.
 
 Current adapter guards retain protected-device alerts and require multi-host ARP
 evidence for automatic quarantine. Vulnerability scoring now uses C's score weights
 with agent-side provenance and conservative catalog candidates; see
 [THREAT_COVERAGE.md](THREAT_COVERAGE.md). A trained-model adapter factory can be
-selected explicitly, but no trained artifact has been supplied yet.
+selected explicitly, and the arrived bundle now runs through the built-in cadence-correct adapter; see MODEL_HANDOFF.md.

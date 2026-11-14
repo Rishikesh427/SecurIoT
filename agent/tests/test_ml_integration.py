@@ -117,7 +117,7 @@ class MLIntegrationTests(unittest.TestCase):
         result = subprocess.run([
             sys.executable, str(AGENT_DIR / "agent.py"), "--replay",
             str(AGENT_DIR / "fixtures/arp_scan.pcap"), "--arm",
-            "--state-dir", str(self.directory / "cli"),
+            "--state-dir", str(self.directory / "cli"), "--model-mode", "rules",
         ], capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("detector: ml", result.stdout)

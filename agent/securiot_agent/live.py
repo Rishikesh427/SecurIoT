@@ -15,9 +15,9 @@ from .runtime import Agent
 from .storage import Storage
 
 
-def build(devices: Path, state_dir: Path, *, armed=False, decoy_ips=(), clock=time.time):
+def build(devices: Path, state_dir: Path, *, armed=False, decoy_ips=(), clock=time.time, model_mode="rules"):
     inventory = load_devices(devices)
-    detector = MLAdapter(clock, (d.mac for d in inventory.devices.values() if d.protected))
+    detector = MLAdapter(clock, (d.mac for d in inventory.devices.values() if d.protected), model_mode=model_mode)
     agent = Agent(inventory, detector, MockEnforcer(), Storage(state_dir), clock=clock)
     for device in inventory.devices.values():
         device.assessment = detector.assess_device(device)
@@ -52,11 +52,12 @@ def show(event):
           f"{event.actions_taken or event.would_have}")
 
 
-def run_live(iface, devices, state_dir, armed=False, decoy_ips=()):
+def run_live(iface, devices, state_dir, armed=False, decoy_ips=(), model_mode="required"):
     from scapy.all import sniff
-    agent, collector = build(devices, state_dir, armed=armed, decoy_ips=decoy_ips)
+    agent, collector = build(devices, state_dir, armed=armed, decoy_ips=decoy_ips, model_mode=model_mode)
     print(f"SECURIOT LIVE on {iface}: {'ARMED (mock actions)' if armed else 'learning mode'}; "
           f"{len(collector.windows)} known devices; 30 s warmup. Ctrl+C to stop.")
+    print("Model:", agent.detector.model_status)
     try:
         sniff(iface=iface, prn=make_handler(agent, collector, show), store=False)
     except KeyboardInterrupt:
