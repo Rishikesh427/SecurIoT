@@ -49,15 +49,20 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+let policyETag: string | null = null;
+
 async function http<T>(path: string, init: RequestInit = {}, base = API_BASE): Promise<T> {
   const res = await fetch(`${base}${path}`, {
     ...init,
+    signal: init.signal ?? AbortSignal.timeout(15000),
+    cache: "no-store",
     headers: { "Content-Type": "application/json", ...authHeaders(), ...init.headers },
   });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new ApiError(res.status, typeof body?.detail === "string" ? body.detail : `${res.status} ${res.statusText}`);
   }
+  if (path === "/policy") policyETag = res.headers.get("ETag");
   if (res.status === 204) return undefined as T;
   if (!res.headers.get("content-type")?.includes("json")) throw new ApiError(404, "Not an API response");
   return res.json();
@@ -81,9 +86,13 @@ export const api = {
   devices: () => (USE_MOCK ? mockServer.getDevices() : http<Device[]>("/devices")),
   events: () => (USE_MOCK ? mockServer.getEvents() : http<SecurEvent[]>("/events?limit=100")),
   policy: () => (USE_MOCK ? mockServer.getPolicy() : http<Policy>("/policy")),
-  savePolicy: (p: Policy) => (USE_MOCK ? mockServer.putPolicy(p) : http<Policy>("/policy", { method: "PUT", body: JSON.stringify(p) })),
+  savePolicy: (p: Policy) => {
+    if (USE_MOCK) return mockServer.putPolicy(p);
+    if (!policyETag) return Promise.reject(new ApiError(409, "Reload settings before changing the response policy."));
+    return http<Policy>("/policy", { method: "PUT", headers: {"If-Match": policyETag}, body: JSON.stringify(p) });
+  },
   action: (req: ActionRequest) =>
-    USE_MOCK ? mockServer.postAction(req) : http<Command>("/actions", { method: "POST", body: JSON.stringify(req) }),
+    USE_MOCK ? mockServer.postAction(req) : http<Command>("/actions", { method: "POST", headers: {"Idempotency-Key": crypto.randomUUID()}, body: JSON.stringify(req) }),
   audit: () => (USE_MOCK ? mockServer.getAudit() : http<AuditEntry[]>("/audit")),
   runAudit: () => (USE_MOCK ? mockServer.runAudit() : http<AuditRun>("/audit/run", { method: "POST" })),
 

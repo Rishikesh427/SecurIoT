@@ -1,9 +1,11 @@
 """Live capture into the same collector -> detector -> safety-policy path as replay.
 
-Enforcement stays mocked. Needs root (raw capture) and `agent[replay]` (Scapy).
+Default enforcement is mocked. Linux enforcement requires explicit configuration.
 """
 import dataclasses
 import time
+import queue
+import threading
 from pathlib import Path
 
 from .collector import TrafficCollector
@@ -15,10 +17,21 @@ from .runtime import Agent
 from .storage import Storage
 
 
-def build(devices: Path, state_dir: Path, *, armed=False, decoy_ips=(), clock=time.time, model_mode="rules"):
-    inventory = load_devices(devices)
+def build(devices: Path, state_dir: Path, *, armed=False, decoy_ips=(), clock=time.time, model_mode="rules", linux_config=None):
+    inventory = load_devices(devices, simulated=linux_config is None)
     detector = MLAdapter(clock, (d.mac for d in inventory.devices.values() if d.protected), model_mode=model_mode)
-    agent = Agent(inventory, detector, MockEnforcer(), Storage(state_dir), clock=clock)
+    enforcer = MockEnforcer()
+    if linux_config is not None:
+        from .linux_enforcement import LinuxEnforcer
+        enforcer = LinuxEnforcer(linux_config, state_dir, list(inventory.devices.values()))
+        for device in inventory.devices.values():
+            device.protected = device.protected or device.mac in enforcer.protected
+    try:
+        agent = Agent(inventory, detector, enforcer, Storage(state_dir, "linux" if linux_config else "simulation"), clock=clock)
+    except BaseException:
+        if not enforcer.simulated:
+            enforcer.close()
+        raise
     for device in inventory.devices.values():
         device.assessment = detector.assess_device(device)
     if armed:
@@ -52,13 +65,73 @@ def show(event):
           f"{event.actions_taken or event.would_have}")
 
 
-def run_live(iface, devices, state_dir, armed=False, decoy_ips=(), model_mode="required"):
-    from scapy.all import sniff
-    agent, collector = build(devices, state_dir, armed=armed, decoy_ips=decoy_ips, model_mode=model_mode)
-    print(f"SECURIOT LIVE on {iface}: {'ARMED (mock actions)' if armed else 'learning mode'}; "
-          f"{len(collector.windows)} known devices; 30 s warmup. Ctrl+C to stop.")
-    print("Model:", agent.detector.model_status)
+class LivePump:
+    """Capture thread only enqueues; runtime, storage, and cloud have one writer."""
+    def __init__(self, agent, collector, cloud=None, *, capacity=4096, on_event=show):
+        self.packets = queue.Queue(maxsize=capacity)
+        self.handle = make_handler(agent, collector, on_event)
+        self.cloud = cloud
+        self.dropped = 0
+        self.next_poll = 0.0
+
+    def receive(self, packet):
+        try:
+            self.packets.put_nowait(packet)
+        except queue.Full:
+            self.dropped += 1
+
+    def step(self, now, *, wait=0.1):
+        try:
+            self.handle(self.packets.get(timeout=wait))
+        except queue.Empty:
+            pass
+        if self.cloud is not None and now >= self.next_poll:
+            for error in self.cloud.tick():
+                print(f"Cloud: {error}; pending work retained")
+            self.next_poll = now + 2
+
+
+def run_live(iface, devices, state_dir, armed=False, decoy_ips=(), model_mode="required", *,
+             linux_config=None, api_url=None, api_key=None):
+    from scapy.all import AsyncSniffer
+    if linux_config is not None and linux_config.ap_interface != iface:
+        raise ValueError("Capture must use the configured AP interface")
+    agent, collector = build(devices, state_dir, armed=armed, decoy_ips=decoy_ips,
+                             model_mode=model_mode, linux_config=linux_config)
+    sniffer = None
     try:
-        sniff(iface=iface, prn=make_handler(agent, collector, show), store=False)
+        cloud = None
+        if api_url:
+            from .cloud import CloudClient
+            from .cloud_loop import CloudLoop
+            cloud = CloudLoop(agent, CloudClient(api_url, api_key),
+                              Path(__file__).resolve().parents[2] / "contract/schemas.json", permit_arm=armed)
+            for error in cloud.tick(upload=False):
+                print(f"Cloud: {error}; local processing continues")
+        pump = LivePump(agent, collector, cloud)
+        mode = "mock actions" if agent.enforcer.simulated else "REAL Linux enforcement"
+        print(f"SECURIOT LIVE on {iface}: {'ARMED' if armed else 'learning mode'} ({mode}); "
+              f"{len(collector.windows)} known devices; 30 s automatic warmup. Ctrl+C to stop.")
+        print("Model:", agent.detector.model_status)
+        ready = threading.Event()
+        sniffer = AsyncSniffer(iface=iface, prn=pump.receive, store=False, started_callback=ready.set)
+        sniffer.start()
+        if not ready.wait(5):
+            if not sniffer.running:
+                sniffer.join()
+            raise OSError("Live capture did not become ready")
+        while True:
+            pump.step(time.monotonic())
+            # Surface asynchronous capture errors instead of polling commands forever.
+            if not sniffer.running:
+                sniffer.join()
+                raise OSError("Live capture stopped unexpectedly")
     except KeyboardInterrupt:
-        print("Stopped.")
+        print("Stopped; existing restrictions and pending cloud work are retained.")
+    finally:
+        if sniffer is not None and sniffer.running:
+            sniffer.stop()
+        if 'pump' in locals() and pump.dropped:
+            print(f"Capture overloaded: {pump.dropped} packets dropped; detection coverage was incomplete.")
+        if not agent.enforcer.simulated:
+            agent.enforcer.close()

@@ -1,9 +1,13 @@
+For live capture with real Linux enforcement and manual dashboard overrides, see
+[LINUX_ENFORCEMENT.md](LINUX_ENFORCEMENT.md). The examples below use offline replay
+and mock enforcement; `--connect` also supports `--live IFACE`.
+
 # Agent cloud loop
 
 This is an offline packet-replay runner with mock enforcement. It uses C's arrived trained scan model plus
 rules/scorer and B's existing ingest/sync/ack contract. It can upload results,
 process queued Restore commands, and keep polling after replay reaches EOF.
-It does not provide a live sniffer, firewall backend, dashboard, or trained model training.
+This replay example uses mock enforcement. The live runner and Linux backend are documented separately; model training remains Worker C's responsibility.
 
 ## Setup and run
 
@@ -41,7 +45,7 @@ hardware bundle is still a future enforcement integration.
   ingest contract are exported. Audit-only/unsupported kinds stay local.
 - Conversion maps statuses, timestamps, confidence vocabulary, and anomaly ratios
   to the shared schema. Every upload is validated before sending. Payloads are
-  explicitly marked as simulated/mock.
+  explicitly marked with their simulation/enforcement provenance.
 - `cloud.json` freezes each pending payload, including UUIDs and timestamps, before
   upload. A lost response causes the exact same payload to be retried after restart.
 - A cursor advances only after a valid ingest response. Acknowledged events remain
@@ -53,8 +57,9 @@ hardware bundle is still a future enforcement integration.
   enforcement. A different command payload reusing an old UUID is rejected.
 - Journals are bound to the API URL. Use another state directory when changing APIs.
 - API errors are bounded by timeouts and retained for retry. This single-threaded
-  offline harness can pause packet-file processing during HTTP calls; live packet
-  capture must be decoupled before claiming real-time containment under outages.
+  replay harness can pause packet-file processing during HTTP calls. Live capture
+  enqueues packets on a separate thread with a bounded queue; processing remains
+  serialized and queue overflow reports incomplete coverage.
 
 Successful mock actions update the simulated device snapshot timestamp, allowing
 B's newer-snapshot upsert to display Restore. Real hardware should distinguish

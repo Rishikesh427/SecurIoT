@@ -95,7 +95,7 @@ class CloudLoop:
         record = {"fingerprint": fingerprint, "ack": None, "sent": False}
         self.state["commands"][identifier] = record
         self.save()  # Durable intent before any action.
-        event = self.agent.request_action(command["action"], command.get("mac"))
+        event = self.agent.request_action(command["action"], command.get("mac"), manual=True)
         record["ack"] = self.ack("applied" if event.actions_taken else "failed",
                                  event.evidence["decision"])
         self.save()  # Freeze the exact acknowledgement for network retries.

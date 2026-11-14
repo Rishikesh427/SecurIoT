@@ -32,6 +32,8 @@ class Agent:
                 raise ValueError("Real enforcement needs SECURIOT_REAL_ENFORCEMENT=yes")
             if any(d.simulated for d in inventory.devices.values()):
                 raise ValueError('Real enforcement needs every device to have "simulated": false')
+        if storage.mode != ("simulation" if enforcer.simulated else "linux"):
+            raise ValueError("Use a separate Linux state directory for real enforcement")
         self.inventory = inventory
         self.detector = detector
         self.enforcer = enforcer
@@ -47,6 +49,21 @@ class Agent:
 
     def _load_saved_state(self) -> None:
         state = self.storage.load_state()
+        if not self.enforcer.simulated:
+            self.enforcer.reconcile()
+            for mac, record in state["devices"].items():
+                self.last_action_at[mac] = record["last_action_at"]
+                self.grace_until[mac] = record["grace_until"]
+            # The backend journal is authoritative after a crash or local panic.
+            for device in self.inventory.devices.values():
+                device.status = "normal"
+            for mac, status in self.enforcer.restrictions.items():
+                device = self.inventory.get(mac)
+                if device is not None:
+                    device.status = status
+                    device.last_seen = self.clock()
+                    self._event("state_reapplied", mac, {"reason": "Linux restriction reconciled"})
+            return
         for mac, record in state["devices"].items():
             device = self.inventory.get(mac)
             if device is None:
@@ -69,7 +86,7 @@ class Agent:
     def _save(self) -> None:
         self.storage.save_state({
             "version": 1,
-            "mode": "simulation",
+            "mode": self.storage.mode,
             "saved_at": self.clock(),
             "devices": {
                 mac: {
@@ -155,7 +172,10 @@ class Agent:
         after a WAN block, goes straight to quarantine. None means notify only."""
         score = self._score(finding)
         device = self.inventory.get(mac)
-        if finding.kind == "decoy_touch" or score >= self.QUARANTINE_AT:
+        # C's ARP rule reports a count-derived anomaly ratio, not a calibrated
+        # model probability. Its containment eligibility was checked by the adapter.
+        arp_rule = finding.kind == "scan_arp" and finding.evidence.get("detector") == "securiot_ml"
+        if finding.kind == "decoy_touch" or arp_rule or score >= self.QUARANTINE_AT:
             wanted = "quarantine"
         elif device is not None and device.status == "blocked" and score >= self.BLOCK_AT:
             wanted = "quarantine"
@@ -169,8 +189,8 @@ class Agent:
                 return step
         return None
 
-    def request_action(self, action: str, mac: str | None = None, *, finding: Finding | None = None) -> Event:
-        evidence: dict[str, Any] = {"requested_action": action}
+    def request_action(self, action: str, mac: str | None = None, *, finding: Finding | None = None, manual: bool = False) -> Event:
+        evidence: dict[str, Any] = {"requested_action": action, "manual": manual}
         if finding is not None:
             evidence.update({"finding": finding.kind, "detection": finding.evidence})
             device_for_evidence = self.inventory.get(mac) if mac else None
@@ -202,24 +222,28 @@ class Agent:
         if action != "restore":
             if device.protected:
                 return decision("protected_device")
-            if now - self.started_at < self.policy.warmup_seconds:
+            if not manual and now - self.started_at < self.policy.warmup_seconds:
                 return decision("startup_warmup")
-            if now < self.grace_until.get(mac, 0):
+            if not manual and now < self.grace_until.get(mac, 0):
                 return decision("restore_grace")
             if self.policy.learning_mode:
                 return decision("learning_mode", learning=True)
-            if mac in self.last_action_at and now - self.last_action_at[mac] < self.policy.cooldown_seconds:
+            if not manual and mac in self.last_action_at and now - self.last_action_at[mac] < self.policy.cooldown_seconds:
                 return decision("action_cooldown")
             if device.status == "quarantined" or (action == "block_wan" and device.status == "blocked"):
                 return decision("already_restricted")
         try:
             self.enforcer.apply(action, mac)
         except Exception as error:
-            # Never claim containment when the backend failed.
+            # Preserve the last confirmed status; partial effects are not success.
+            if not self.enforcer.simulated:
+                evidence["enforcement_uncertain"] = True
+                evidence["enforcement_error"] = str(error)
+                evidence["recovery"] = "Intent retained; retry Restore or use local panic after stopping the agent"
             return decision(f"enforcement_failed: {type(error).__name__}")
         device.status = {"block_wan": "blocked", "quarantine": "quarantined", "restore": "normal"}[action]
         self.last_action_at[mac] = now
-        device.last_seen = now  # Successful MOCK action updates the simulated device snapshot.
+        device.last_seen = max(now, (device.last_seen or 0) + 0.000001)  # A newer snapshot must carry status changes even within one clock tick.
         if action == "restore":
             self.grace_until[mac] = now + self.policy.restore_grace_seconds
         self._save()
@@ -228,8 +252,9 @@ class Agent:
     def _restore_all(self) -> Event:
         restored: list[str] = []
         failed: list[str] = []
+        pending = getattr(self.enforcer, "pending_macs", set())
         for mac, device in self.inventory.devices.items():
-            if device.status == "normal":
+            if device.status == "normal" and mac not in pending:
                 continue
             event = self.request_action("restore", mac)
             (restored if event.actions_taken else failed).append(mac)

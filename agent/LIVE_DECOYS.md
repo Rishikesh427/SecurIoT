@@ -12,8 +12,9 @@
    credentials, executes a command, or implements an exploitable Telnet/SMB service.
 
 Model-only binary scan warnings remain advisory. Decoy/strong ARP signals can
-request mock containment through the existing safeguards. Real firewall/hostapd
-isolation is still pending; "quarantined" currently means mock state.
+request containment through the existing safeguards. These commands default to
+mock enforcement. For the implemented real Linux backend, manual dashboard actions,
+and physical acceptance steps, see [LINUX_ENFORCEMENT.md](LINUX_ENFORCEMENT.md).
 
 ## Verify on the current Mac with Docker
 
@@ -61,6 +62,6 @@ and is the source of detection decisions. This prevents stale IP mappings from
 being silently presented as packet-level proof.
 
 For offline model replay and actual API/React Docker checks, see MODEL_HANDOFF.md
-and CLOUD_RUNNER.md. `--connect` currently applies to replay; live cloud polling
-is not yet connected. Native Linux AP visibility, physical Pi traffic, and real
-Wi-Fi/firewall quarantine remain separate acceptance tests.
+and CLOUD_RUNNER.md. `--connect` now supports live cloud polling. Native Linux AP
+visibility, physical Pi traffic, and real Wi-Fi quarantine remain hardware
+acceptance tests; real nftables packet behavior is verified in the isolated lab.

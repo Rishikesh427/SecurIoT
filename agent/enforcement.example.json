@@ -1,0 +1,7 @@
+{
+  "ap_interface": "ap0",
+  "wan_interface": "enp3s0",
+  "hostapd_control": "/run/hostapd",
+  "hostapd_config": "/etc/hostapd/hostapd.conf",
+  "protected_macs": ["02:00:00:00:00:02"]
+}

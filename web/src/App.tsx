@@ -24,7 +24,7 @@ import { playAlertTone, speak, unlockAudio } from "./lib/alert";
 import { isContained, shortLabel } from "./lib/format";
 import { isIncident, summarize } from "./lib/incident";
 import { mockServer } from "./mock/mockServer";
-import type { ActionName, DashDevice, Device, Policy, SecurEvent } from "./types";
+import type { ActionName, AuditEntry, DashDevice, Device, Policy, SecurEvent } from "./types";
 
 type Tab = "overview" | "activity" | "settings";
 
@@ -58,6 +58,9 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   const [fixing, setFixing] = useState<Issue | null>(null);
   const [doneIds, setDoneIds] = useState<Set<string>>(loadDone);
   const [now, setNow] = useState(Date.now());
+  const [audit, setAudit] = useState<AuditEntry[]>([]);
+  const [commands, setCommands] = useState<Record<string, {id: string; action: ActionName}>>({});
+  const requestBusy = useRef(false);
   const seenIncidents = useRef<Set<string> | null>(null);
 
   usePoll(() => setNow(Date.now()), 200);
@@ -71,7 +74,8 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
 
   const refresh = useCallback(async () => {
     try {
-      const [d, e] = await Promise.all([api.devices(), api.events()]);
+      const [d, e, a] = await Promise.all([api.devices(), api.events(), api.audit().catch(() => null)]);
+      if (a) setAudit(a);
       setRawDevices(d);
       setEvents(e);
       setOffline(false);
@@ -118,17 +122,19 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   };
 
   async function act(action: ActionName, mac?: string) {
-    setBusy(true);
+    if (requestBusy.current || commands[mac || "all"] || commands.all || (action === "restore_all" && Object.keys(commands).length)) return;
+    requestBusy.current = true; setBusy(true);
     try {
-      await api.action(action === "restore_all" ? { action } : { action, mac });
+      const command = await api.action(action === "restore_all" ? { action } : { action, mac });
+      setCommands(previous => ({...previous, [mac || "all"]: {id: command.id, action}}));
       await refresh();
       const name = shortLabel(devices.find((d) => d.mac === mac)?.label ?? "");
       // POST /actions only queues a command; the agent applies it on its next sync.
       const msg: Record<ActionName, string> = {
-        quarantine: `Isolating ${name}`,
-        block_wan: `Blocking internet for ${name}`,
-        restore: `Restoring ${name}. It will rejoin Wi-Fi shortly.`,
-        restore_all: "Restoring all devices",
+        quarantine: `Quarantine requested for ${name}. Awaiting agent acknowledgement.`,
+        block_wan: `Internet block requested for ${name}. Awaiting agent acknowledgement.`,
+        restore: `Restore requested for ${name}. Awaiting agent acknowledgement.`,
+        restore_all: "Restore all requested. Awaiting agent acknowledgement.",
       };
       flash(msg[action]);
     } catch (e) {
@@ -136,9 +142,21 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
       // Say it in the dashboard's words: "learning mode" is "automatic protection off".
       flash(/learning mode/i.test(text) ? "Turn on automatic protection first, then isolate." : text);
     } finally {
-      setBusy(false);
+      requestBusy.current = false; setBusy(false);
     }
   }
+
+  useEffect(() => {
+    const finished = Object.entries(commands).filter(([, command]) => audit.some(row => row.command_id === command.id && row.outcome !== "requested"));
+    if (!finished.length) return;
+    const remaining = {...commands};
+    for (const [mac, command] of finished) {
+      delete remaining[mac];
+      const row = audit.find(entry => entry.command_id === command.id);
+      flash(`${command.action === "restore" || command.action === "restore_all" ? "Restore" : "Containment"} ${row?.outcome === "applied" ? "acknowledged by the agent" : "failed or cancelled. Check the agent and audit log"}.`);
+    }
+    setCommands(remaining);
+  }, [audit, commands]);
 
   async function savePolicy(p: Policy) {
     try {
@@ -201,7 +219,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
           />
           <div className="flex items-center justify-end gap-1">
             {isolated.length > 0 && canAct && (
-              <Button onClick={() => act("restore_all")} disabled={busy} className="h-8">
+              <Button onClick={() => act("restore_all")} disabled={busy || Object.keys(commands).length > 0} className="h-8">
                 Restore all
               </Button>
             )}
@@ -218,7 +236,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
           className={`overflow-hidden bg-fill text-center text-[13px] text-ink transition-all duration-500 ${offline ? "max-h-10 py-2.5" : "max-h-0 py-0"}`}
           style={{ transitionTimingFunction: "var(--ease-apple)" }}
         >
-          Can't reach the server. The agent keeps protecting your network locally at port 8787.
+          Can't reach the server. Commands remain pending until the agent reconnects.
         </div>
       </header>
 
@@ -321,7 +339,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
         />
       )}
 
-      {selectedDevice && <DeviceDetail device={selectedDevice} events={events} busy={busy} canAct={canAct} onClose={() => setSelected(null)} onAction={act} />}
+      {selectedDevice && <DeviceDetail device={selectedDevice} events={events} busy={busy} canAct={canAct} policy={policy} pending={commands[selectedDevice.mac]?.action || commands.all?.action} onClose={() => setSelected(null)} onAction={act} />}
 
       <div
         className={`fixed left-1/2 top-20 z-50 -translate-x-1/2 transition-all duration-500 ${toast ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-3 opacity-0"}`}

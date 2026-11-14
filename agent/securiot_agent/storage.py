@@ -14,17 +14,20 @@ from .models import Event, normalize_mac
 
 
 class Storage:
-    def __init__(self, directory: Path):
+    def __init__(self, directory: Path, mode: str = "simulation"):
+        if mode not in {"simulation", "linux"}:
+            raise ValueError("Unsupported storage mode")
+        self.mode = mode
         self.directory = directory
         self.state_path = directory / "state.json"
         self.outbox_path = directory / "outbox.jsonl"
 
     def load_state(self) -> dict[str, Any]:
         if not self.state_path.exists():
-            return {"version": 1, "mode": "simulation", "saved_at": 0, "devices": {}}
+            return {"version": 1, "mode": self.mode, "saved_at": 0, "devices": {}}
         try:
             state = json.loads(self.state_path.read_text())
-            if state["version"] != 1 or state["mode"] != "simulation":
+            if state["version"] != 1 or state["mode"] != self.mode:
                 raise ValueError("Unsupported state version or mode")
             self._check_time(state["saved_at"])
             if not isinstance(state["devices"], dict):

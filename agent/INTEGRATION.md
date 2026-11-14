@@ -2,22 +2,22 @@
 
 ## Current integration stage
 
-We have **replay and live capture with mock enforcement**: packet decoding,
+We have **replay and live capture with optional Linux enforcement**: packet decoding,
 per-device traffic measurements, Worker C rules and trained model, safety decisions,
 restart state, and an audit/outbox. Real TCP decoy listeners and an isolated Docker
 capture test are available; generated fixtures keep replay reproducible.
 
 This is a collection/core milestone, not completion of Worker A's network track.
-Cloud delivery/command polling is implemented for the replay runner. Live cloud
-polling, automatic discovery, Linux enforcement, the local web server, and physical
-hotspot deployment tests remain pending. See [LIVE_DECOYS.md](LIVE_DECOYS.md).
+Cloud delivery/command polling supports replay and live capture. Linux nftables/
+hostapd enforcement and manual dashboard commands are implemented; automatic
+discovery, the local web server, and physical hotspot deployment tests remain pending. See [LIVE_DECOYS.md](LIVE_DECOYS.md).
 
 ```mermaid
 flowchart LR
     P[Saved packets or live Scapy capture] --> A[Worker A: collector]
     A --> C[Worker C: detect and assess]
     C --> S[Worker A: safety policy]
-    S --> E[Mock actions now / Linux firewall later]
+    S --> E[Mock replay or opt-in Linux enforcement]
     S --> O[Local events and outbox]
     O --> B[Worker B: cloud API and storage]
     B --> D[Worker D: dashboard]
@@ -112,8 +112,8 @@ Gemini explanations are cloud-side and never decide whether to contain a device.
 
 ## Linux: replace the hardware-specific boundaries
 
-The Scapy live-sniffer callback already feeds the collector. Replace `MockEnforcer`
-with an nftables/hostapd backend. The safety/runtime and cloud adapters remain shared.
+The Scapy live-sniffer callback feeds the collector. The opt-in `LinuxEnforcer`
+uses nftables/hostapd; see [LINUX_ENFORCEMENT.md](LINUX_ENFORCEMENT.md). The safety/runtime and cloud adapters remain shared.
 Then verify the real access point, traffic visibility, block/restore behavior,
 panic recovery, and offline operation on Linux. Packet replay cannot prove any
 of those hardware properties.
@@ -123,7 +123,7 @@ of those hardware properties.
 
 The optional `--connect` runner now serializes and validates records against the
 shared schema, calls B's real ingest/sync/ack routes, and journals uploads and
-command outcomes for retry. See [CLOUD_RUNNER.md](CLOUD_RUNNER.md). Physical hotspot/Pi tests, live cloud polling,
+command outcomes for retry. See [CLOUD_RUNNER.md](CLOUD_RUNNER.md). Physical hotspot/Pi tests
 and deployed database verification remain pending.
 
 Current adapter guards retain protected-device alerts and require multi-host ARP

@@ -17,7 +17,7 @@ from .simulation import DemoClock
 from .storage import Storage
 
 
-def load_devices(path: Path) -> Inventory:
+def load_devices(path: Path, *, simulated: bool = True) -> Inventory:
     """Read local known-device configuration, not risk scores/persona claims."""
     try:
         data = json.loads(path.read_text())
@@ -30,6 +30,8 @@ def load_devices(path: Path) -> Inventory:
                 raise ValueError("Each device must be an object")
             if type(record.get("protected", False)) is not bool:
                 raise ValueError("protected must be true or false")
+            if not simulated and record.get("simulated") is not False:
+                raise ValueError("Live devices must explicitly set simulated=false")
             name = record.get("label") or record["name"]
             if not isinstance(name, str) or not name.strip():
                 raise ValueError("Device name must be a nonempty string")
@@ -53,7 +55,7 @@ def load_devices(path: Path) -> Inventory:
                                   ) if key in record}))
             devices[-1].risk_facts["_simulated_facts"] = record.get("simulated") is True
             if "persona" in record:
-                if record.get("simulated") is not True or not isinstance(record["persona"], dict):
+                if not simulated or record.get("simulated") is not True or not isinstance(record["persona"], dict):
                     raise ValueError("A persona requires an explicitly simulated device")
                 allowed = {"vendor", "model", "type", "eol", "cloud_only", "kev"}
                 if set(record["persona"]) - allowed:

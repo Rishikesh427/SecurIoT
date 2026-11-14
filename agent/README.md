@@ -2,17 +2,17 @@
 
 This is Worker A's agent development slice from the [V3 build plan](https://docs.google.com/document/d/1VMV0LMaaC6DO5OXcdFnvUauciE278WBpgJ2sXGo0xIM/edit?tab=t.n4h3all1s3x3):
 
-**Packets → local detector/scorer → safety decision → mock action → durable event → optional cloud delivery.**
+**Packets → local detector/scorer → safety decision → enforcement → durable event → optional cloud delivery.**
 
-It runs with Python 3.11+. The original summary walkthrough uses only the standard library; packet replay and live capture use Scapy. The optional connected replay runner uploads to the cloud. Real firewall changes remain future work.
+It runs with Python 3.11+. The original summary walkthrough uses only the standard library; packet replay and live capture use Scapy. Connected replay and live runners upload to the cloud. Real Linux enforcement is explicitly opt-in; replay always uses mocks.
 
-**Current stage: replay and live capture with mock enforcement.** It calculates traffic features, runs Worker C's rules and trained model, applies safety checks, and saves events. Worker B's ingest/sync/ack routes are connected through the optional replay runner. Real TCP decoy listeners are available; Linux network controls remain pending. See [how the tracks fit together](INTEGRATION.md).
+**Current stage: replay/live capture, with optional Linux enforcement.** It calculates traffic features, runs Worker C's rules and trained model, applies safety checks, and saves events. Worker B's ingest/sync/ack routes support replay and live capture. Real TCP decoys and a Linux nftables/hostapd backend are available; physical hotspot acceptance remains pending. See [how the tracks fit together](INTEGRATION.md).
 
 ## Live capture and decoys
 
 The upstream live mode and decoy service are integrated. See
 [LIVE_DECOYS.md](LIVE_DECOYS.md) for Linux hotspot commands and an isolated,
-real-packet Docker test that works on this Mac. Enforcement remains mocked.
+real-packet Docker test that works on this Mac. For real firewall isolation, manual dashboard Quarantine/Restore, and panic recovery, see [LINUX_ENFORCEMENT.md](LINUX_ENFORCEMENT.md).
 
 ## Arrived model
 
@@ -185,8 +185,8 @@ The tests use temporary directories, generated packets, and a controllable clock
 ## Later milestones
 
 1. Verify live capture, decoy IP assignments, and device discovery on the physical Linux hotspot.
-2. Add nftables/hostapd enforcement and a local panic command, with rollback tests on Linux.
-3. Connect live capture to the existing cloud polling loop and verify the deployed database.
+2. Validate the implemented nftables/hostapd backend and panic command on the physical Linux hotspot.
+3. Verify live cloud polling and the deployed database on the demo network.
 4. Add the local API/web bundle, systemd deployment, and optional smart-plug mapping.
 5. Evaluate the trained model against real Pi demo traffic and agree on baseline intervals.
 

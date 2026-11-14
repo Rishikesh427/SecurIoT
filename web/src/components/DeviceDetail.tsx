@@ -1,9 +1,10 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { DeviceControls } from "../DeviceControls";
 import { ChevronDown } from "lucide-react";
 import { bandLabel, bytes, clock, confidenceLabel, eventMeta, isContained, severityDot } from "../lib/format";
 import { plainEvent, plainReason } from "../lib/plain";
 import { cleanupSteps, deviceSummary, isIncident, summarize } from "../lib/incident";
-import type { ActionName, DashDevice, SecurEvent } from "../types";
+import type { ActionName, DashDevice, Policy, SecurEvent } from "../types";
 import { Button, Card, RiskRing, Status, Tag } from "./ui";
 
 const yesNo = (v: boolean | null) => (v == null ? "Unknown" : v ? "Yes" : "No");
@@ -15,6 +16,8 @@ export function DeviceDetail({
   onAction,
   busy,
   canAct,
+  policy,
+  pending,
 }: {
   device: DashDevice;
   events: SecurEvent[];
@@ -22,6 +25,8 @@ export function DeviceDetail({
   onAction: (action: ActionName, mac: string) => void;
   busy: boolean;
   canAct: boolean;
+  policy: Policy | null;
+  pending?: string;
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -66,22 +71,8 @@ export function DeviceDetail({
             </div>
           </div>
 
-          {!canAct ? (
-            <p className="rounded-2xl bg-fill px-4 py-3 text-[14px] text-ink-2">Isolate and Restore will work once the server supports actions.</p>
-          ) : contained ? (
-            <Button variant="primary" className="w-full" disabled={busy} onClick={() => onAction("restore", device.mac)}>
-              Restore
-            </Button>
-          ) : (
-            <Button
-              variant="destructive"
-              className="w-full"
-              disabled={busy || device.protected || device.status === "offline"}
-              onClick={() => onAction("quarantine", device.mac)}
-            >
-              {device.protected ? "Protected devices can't be isolated" : "Isolate"}
-            </Button>
-          )}
+          <DeviceControls mac={device.mac} policy={policy} pending={pending}
+            busy={busy} readOnly={!canAct} onAction={onAction} />
 
           {contained && (
             <div className="rounded-2xl bg-warn/[0.08] px-4 py-3 text-[14px] leading-relaxed text-ink">

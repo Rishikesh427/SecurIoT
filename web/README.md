@@ -79,3 +79,17 @@ Mock mode reads `../contract/fixtures.json` directly, so the mock data always ma
 - **Containment timer:** the contract has no enforcement timestamp. The dashboard reads optional `evidence.first_evidence_at` and `evidence.enforced_at` on the event that carries `actions_taken`, and otherwise estimates from event timestamps. It would help if the agent sent both.
 - **Detection thresholds** and **Ignore** aren't in the contract's Policy/Action, so the dashboard doesn't offer them.
 - **Isolate** sends `quarantine`; the agent applies the block + quarantine bundle.
+
+## Manual isolation and restore
+
+Open a device to Quarantine it or Restore access, without requiring a detector
+alert. Settings must enable protection, and the live agent must be locally armed.
+Protected devices remain exempt. The dashboard shows queued commands until an
+agent acknowledgement; queueing does not optimistically change device status.
+Manual containment bypasses automatic timing delays; Restore provides a minimum
+60-second automatic grace period. The Linux backend and run commands are in
+[agent/LINUX_ENFORCEMENT.md](../agent/LINUX_ENFORCEMENT.md).
+
+Run `npm test` for component/action tests and `npm run build` for type checking
+and a production build. The firewall's actual packet tests run separately in
+Docker; physical hostapd disconnect/reconnect acceptance requires the Linux AP.
