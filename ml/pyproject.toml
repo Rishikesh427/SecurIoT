@@ -1,0 +1,6 @@
+[project]
+name = "securiot_ml"
+version = "0.1"
+requires-python = ">=3.10"
+[tool.setuptools]
+packages = ["securiot_ml"]
