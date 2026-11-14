@@ -1,4 +1,4 @@
-# Person B: hours 1–8
+# Person B: hours 1–12
 
 The API/web hosting runs locally, without a paid hosting service. FastAPI runs in one
 container; Caddy serves a static bundle and proxies the API in another.
@@ -75,6 +75,11 @@ absent so an event can arrive before its device snapshot.
 
 Login sends JSON to POST `/api/auth/login`:
 
+For a direct PowerShell login check, run `./scripts/Test-JudgeLogin.ps1` from the
+repository root. It reads the judge credentials from `api/.env`, removes the
+surrounding dotenv quotes, and stops if login fails. It prints identity only.
+In Swagger's HTTP Bearer Authorize box, paste only the token, without `Bearer `.
+
 ```json
 {"username":"judge","password":"<JUDGE_PASSWORD from api/.env>"}
 ```
@@ -146,7 +151,14 @@ they do not claim live database acceptance.
 
 Included: health/readiness, OpenAPI docs, CORS allowlist, Docker/Caddy, SPA fallback,
 contract/fixtures/inventory, database schema, judge seed, JWT login and identity.
-Ingest, sync, commands, audit endpoints, scoring, enforcement, and React UI are later work.
+H8–12 adds ingest, sync, acknowledgement, devices, and events. Set AGENT_API_KEY
+in api/.env for agent requests (X-API-Key header). Dashboard reads use Bearer JWT.
+See contract/README.md for retry and pagination semantics. Command creation,
+policy editing, audit endpoints, scoring, enforcement, and React UI are later work.
+
+Run platform checks with `python -m pytest -q tests`; this avoids collecting the
+separate ML package before it has been installed. Enable SECURIOT_TEST_DATABASE=1
+for the rollback-only real database ingest/ack tests as well.
 No Git commits are required by these instructions.
 
 References: [Caddy automatic HTTPS](https://caddyserver.com/docs/automatic-https),
