@@ -67,11 +67,16 @@ def generate(directory: Path):
               / ARP(op=1, hwsrc=LAPTOP, psrc="10.42.0.2", pdst=f"10.42.0.{50 + i}"),
               32 + i * 0.1) for i in range(30)
     ])
+    write_capture(directory / "arp_scan.pcap", baseline() + [
+        timed(Ether(src=CAMERA, dst="ff:ff:ff:ff:ff:ff")
+              / ARP(op=1, hwsrc=CAMERA, psrc="10.42.0.20", pdst=f"10.42.0.{50 + i}"),
+              32 + i * 0.1) for i in range(30)
+    ])
     (directory / "devices.json").write_text(json.dumps({"devices": [
         {"mac": CAMERA, "ip": "10.42.0.20", "name": "Camera (generated fixture)", "protected": False},
         {"mac": LAPTOP, "ip": "10.42.0.2", "name": "Dashboard laptop (generated fixture)", "protected": True},
     ]}, indent=2) + "\n")
-    print(f"Wrote four synthetic PCAPs and known-device JSON to {directory}")
+    print(f"Wrote five synthetic PCAPs and known-device JSON to {directory}")
 
 
 if __name__ == "__main__":

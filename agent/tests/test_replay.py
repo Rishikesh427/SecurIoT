@@ -212,7 +212,7 @@ class PacketReplayTests(unittest.TestCase):
     def test_replay_command_line_stays_safe_by_default(self):
         result = subprocess.run([
             sys.executable, str(AGENT_DIR / "agent.py"), "--replay", str(AGENT_DIR / "fixtures/scan.pcap"),
-            "--state-dir", str(self.directory / "cli-state"),
+            "--state-dir", str(self.directory / "cli-state"), "--detector", "preview",
         ], capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Scan findings: 1", result.stdout)

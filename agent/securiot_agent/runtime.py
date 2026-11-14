@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 import time
+import json
 from typing import Any
 
 from .detection import Detector
@@ -31,6 +32,7 @@ class Agent:
         self.policy = policy or Policy()
         self.policy.learning_mode = True  # Every start requires an explicit Arm.
         self.clock = clock
+        self.ladder = {"notify": True, "block_wan": True, "quarantine": True}
         self.started_at = clock()
         self.last_action_at: dict[str, float] = {}
         self.grace_until: dict[str, float] = {}
@@ -94,14 +96,42 @@ class Agent:
         if self.inventory.observe(observation, self.clock()) is None:
             return self._event("observation_ignored", observation.mac, {"reason": "Unknown device"})
         finding = self.detector.observe(observation)
+        if finding is not None:
+            if not isinstance(finding, Finding) or type(finding.containment_allowed) is not bool or not isinstance(finding.evidence, dict):
+                raise ValueError("Detector must return a Finding with a boolean containment decision and dictionary evidence")
+            json.dumps(finding.evidence, allow_nan=False)
+        assessor = getattr(self.detector, "assess_device", None)
+        if assessor is not None:
+            device = self.inventory.get(observation.mac)
+            assessment = assessor(device)
+            if (not isinstance(assessment, dict) or type(assessment.get("risk")) is not int
+                    or not 0 <= assessment["risk"] <= 100
+                    or assessment.get("band") != ("high" if assessment["risk"] >= 60 else "medium" if assessment["risk"] >= 30 else "low")
+                    or assessment.get("confidence") not in {"confirmed", "possible", "likely", "n/a", "low", "medium", "high"}
+                    or not isinstance(assessment.get("reasons"), list)
+                    or any(not isinstance(reason, str) for reason in assessment["reasons"])):
+                raise ValueError("Detector returned an invalid assessment; refusing to act")
+            device.assessment = assessment
         if finding is None:
             return None
-        return self.request_action("quarantine", observation.mac, finding=finding)
+        if not finding.containment_allowed:
+            return self._event("detection", observation.mac, {
+                "finding": finding.kind, "detection": finding.evidence,
+                "decision": "supporting_evidence_only",
+            })
+        action = "quarantine" if self.ladder["quarantine"] else "block_wan" if self.ladder["block_wan"] else None
+        if action is None:
+            return self._event("detection", observation.mac, {
+                "finding": finding.kind, "detection": finding.evidence, "decision": "notify_only"})
+        return self.request_action(action, observation.mac, finding=finding)
 
     def request_action(self, action: str, mac: str | None = None, *, finding: Finding | None = None) -> Event:
         evidence: dict[str, Any] = {"requested_action": action}
         if finding is not None:
             evidence.update({"finding": finding.kind, "detection": finding.evidence})
+            device_for_evidence = self.inventory.get(mac) if mac else None
+            if device_for_evidence:
+                evidence["vulnerability_flags"] = device_for_evidence.assessment.get("vulnerability_flags", [])
         kind = "detection" if finding else "action"
 
         def decision(reason: str, *, taken: bool = False, learning: bool = False) -> Event:
@@ -123,6 +153,8 @@ class Agent:
             return decision("rejected_unknown_device")
 
         now = self.clock()
+        if action in ("block_wan", "quarantine") and not self.ladder[action]:
+            return decision("disabled_by_policy")
         if action != "restore":
             if device.protected:
                 return decision("protected_device")
@@ -143,6 +175,7 @@ class Agent:
             return decision(f"enforcement_failed: {type(error).__name__}")
         device.status = {"block_wan": "blocked", "quarantine": "quarantined", "restore": "normal"}[action]
         self.last_action_at[mac] = now
+        device.last_seen = now  # Successful MOCK action updates the simulated device snapshot.
         if action == "restore":
             self.grace_until[mac] = now + self.policy.restore_grace_seconds
         self._save()

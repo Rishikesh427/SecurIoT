@@ -3,13 +3,13 @@
 ## Stage after packet replay
 
 We have a **standalone offline agent component**: actual packet-file decoding,
-per-device traffic measurements, preview detection, safety decisions, mock
+per-device traffic measurements, Worker C detection/scoring, safety decisions, mock
 enforcement, restart state, and an audit/outbox. Generated capture fixtures make
 the whole chain reproducible on a development laptop.
 
 This is a collection/core milestone, not completion of Worker A's network track.
-Live discovery/capture, the Linux AP/firewall, cloud delivery, and the local web
-server still need implementation and integration tests.
+Cloud delivery/command polling is implemented for the offline runner. Live
+discovery/capture, Linux enforcement, the local web server, and deployment tests remain pending.
 
 ```mermaid
 flowchart LR
@@ -24,9 +24,34 @@ flowchart LR
     B -->|Queued command| S
 ```
 
-The C/B/D boxes show the intended seams. The current runnable path uses a
-threshold-preview detector and ends at the local outbox; it doesn't make calls
-to teammates' services yet.
+The C/B/D boxes show the intended seams. The replay CLI now calls Worker C's actual detector and scorer locally and ends
+at the outbox. The preview is available only by explicit selection. B's cloud routes are connected by the optional runner; dashboard command creation
+and deployed database verification remain pending.
+
+## Worker C integration status: connected for offline replay
+
+`ml_adapter.py` imports the real `securiot_ml.detect.Detector` and `assess()`.
+The replay CLI defaults to `--detector ml`; `--detector preview` selects legacy
+behavior. Combined tests live in `tests/test_ml_integration.py`.
+
+The collector adds explicit per-packet `packet_arp_requests` and
+`packet_syn_targets` fields. C receives those deltas rather than rolling totals,
+and maintains its own window. The adapter aligns C's public `t0` with the replay
+session clock and keeps its warmup enabled. Protected devices remain visible to C's detector; the agent prevents automatic
+actions against them.
+
+C marks target scans as supporting evidence: they are recorded without automatic
+action. Only `scan_arp` and `decoy_touch` with anomaly ≥0.5 can request containment;
+the agent still applies learning mode, protection, cooldown, and restore grace.
+Raw packet replay accepts explicitly configured TCP decoy IPs. Cached baselines
+are not automatically enabled until their byte intervals are agreed. ARP-only
+containment also requires eight distinct ARP targets to reduce repeated-gateway false quarantines.
+
+Assessments use C's native anomaly ratio and retain the maximum observed ratio
+for this offline session. Static risk factors come from explicit device config;
+targeted destination ports are never treated as open services on the sender.
+C's native confidence labels are shown locally; conversion to the cloud enum,
+score decay, and score persistence remain future integration decisions.
 
 ## Worker C: the brain, called locally
 
@@ -39,11 +64,8 @@ output is `Observation` in `models.py`. `bytes_in`/`bytes_out` are per-packet de
 ARP counts, unique SYN targets, DNS names, and `window_bytes_*` are current-window
 snapshots. The distinction prevents double-counting.
 
-Agree with C whether their detector wants raw observations or these window
-features, then add an adapter at `Detector.observe()`. If C owns windowing, feed
-the raw packet facts rather than windowing a second time. C's interface should
-not have to mimic our preview. Remove the preview from the integrated path once
-the adapter is tested with C's fixtures. No risk scores are manufactured here.
+The current adapter follows C's delta-based callable interface. The preview is
+kept as an explicit regression mode, and C's package supplies all integrated scores.
 
 ## Worker B: the shared contract and cloud
 
@@ -54,14 +76,14 @@ The source of truth now exists at `contract/schemas.json`, `fixtures.json`, and
 - `GET /sync?etag=...`: policy plus queued commands, polled every two seconds.
 - `POST /commands/{id}/ack`: acknowledge the actual outcome after validation/enforcement.
 
-These business routes are not implemented by this agent. Before connecting them,
-build a serialization adapter and validate its batches against the shared schema:
+The optional connected runner calls these routes. `wire.py` converts local records
+and `cloud_loop.py` validates each batch before upload:
 
 | Local representation today | Required integration behavior |
 | --- | --- |
 | `status: blocked` | Export `wan_blocked`; keep persisted local state migration explicit if renaming |
 | Numeric `last_seen` | Export a UTC ISO-8601 timestamp |
-| No assessment fields | Populate required fields using C's assessment; don't invent a scored device |
+| C assessment in a local dictionary | Export required fields and translate C confidence labels to the contract enum |
 | Local `protected` and `dns_queries` fields | Keep them local or map through agreed policy/evidence; Device forbids extra fields |
 | Local event `kind: detection` | Export the actual supported finding, e.g. `scan_targets` or `scan_arp` |
 | Top-level `simulated: true` on local events | Put replay provenance in `evidence`; Event forbids extra top-level fields |
@@ -94,3 +116,17 @@ with an nftables backend. The safety/runtime and cloud adapters remain shared.
 Then verify the real access point, traffic visibility, block/restore behavior,
 panic recovery, and offline operation on Linux. Packet replay cannot prove any
 of those hardware properties.
+
+
+## Connected runner and model handoff
+
+The optional `--connect` runner now serializes and validates records against the
+shared schema, calls B's real ingest/sync/ack routes, and journals uploads and
+command outcomes for retry. See [CLOUD_RUNNER.md](CLOUD_RUNNER.md). Live hardware, dashboard command creation, and deployed database verification
+remain pending.
+
+Current adapter guards retain protected-device alerts and require multi-host ARP
+evidence for automatic quarantine. Vulnerability scoring now uses C's score weights
+with agent-side provenance and conservative catalog candidates; see
+[THREAT_COVERAGE.md](THREAT_COVERAGE.md). A trained-model adapter factory can be
+selected explicitly, but no trained artifact has been supplied yet.

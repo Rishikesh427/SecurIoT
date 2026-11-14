@@ -1,12 +1,48 @@
-# SecurIoT agent: local loop and packet replay
+# SecurIoT agent: packet replay, cloud loop, and evidence checks
 
 This is Worker A's offline development slice from the [V3 build plan](https://docs.google.com/document/d/1VMV0LMaaC6DO5OXcdFnvUauciE278WBpgJ2sXGo0xIM/edit?tab=t.n4h3all1s3x3):
 
-**Synthetic observation → demo detection → safety decision → mock enforcement → saved event.**
+**Packets → local detector/scorer → safety decision → mock action → durable event → optional cloud delivery.**
 
-It runs with Python 3.11+. The original summary walkthrough uses only the standard library; packet-file replay uses optional Scapy. This build does not sniff live traffic, scan hosts, change firewall settings, or contact the cloud.
+It runs with Python 3.11+. The original summary walkthrough uses only the standard library; packet-file replay uses optional Scapy. The optional connected runner uploads to the cloud. Live capture and real firewall changes remain future work.
 
-**Current stage: standalone offline agent.** It reads packets from files, calculates traffic features, evaluates preview scan rules, applies safety checks, performs mock actions, and saves events. Worker C's production detection/scoring, Worker B's cloud sync, and Linux network controls remain separate integrations. See [how the tracks fit together](INTEGRATION.md).
+**Current stage: standalone offline agent.** It reads packets from files, calculates traffic features, evaluates preview scan rules, applies safety checks, performs mock actions, and saves events. Worker C's detection/scoring is connected for offline replay; Worker B's ingest/sync/ack routes are connected through the optional runner; Linux network controls remain pending. See [how the tracks fit together](INTEGRATION.md).
+
+## Cloud runner and expanded threat tests
+
+See [CLOUD_RUNNER.md](CLOUD_RUNNER.md) for connected replay, environment setup,
+reconnect behavior, and the trained-model adapter handoff. See
+[THREAT_COVERAGE.md](THREAT_COVERAGE.md) for tested signals, vulnerability evidence,
+and explicit detection gaps.
+
+```bash
+agent/.venv/bin/python -m pip install -r agent/requirements-test.txt
+agent/.venv/bin/python -m pytest agent/tests ml/tests -q
+```
+
+## Combined agent + Worker C testing
+
+Worker C's actual detector/scorer is now the default for the replay CLI. From the repository root:
+
+```bash
+agent/.venv/bin/python -m pip install -e 'agent[replay]' -e ./ml pytest
+agent/.venv/bin/python -m pytest agent/tests ml/tests -q
+```
+
+This runs both tracks' unit tests and the combined packet → C detector/scorer → local safety → mock action tests. The ML package must be installed editable because its reference JSON data currently lives alongside its source directory.
+
+Compare a supporting warning with an actionable scan:
+
+```bash
+agent/.venv/bin/python agent/agent.py --replay agent/fixtures/scan.pcap --arm
+agent/.venv/bin/python agent/agent.py --replay agent/fixtures/arp_scan.pcap --arm
+```
+
+With fresh state, the first reports `supporting_evidence_only` and keeps the device normal; the second applies mock quarantine. Omit `--arm` for learning mode. Pass a fresh `--state-dir` to isolate repeated experiments from saved mock restrictions. Use `--detector preview` to explicitly select the earlier preview behavior; the original `--simulate` walkthrough still uses its demo detector.
+
+C receives per-packet ARP/SYN deltas and owns its own 10-second window. C's `scan_arp`/`decoy_touch` findings with anomaly ≥0.5 are eligible for containment, with at least eight distinct ARP targets additionally required for ARP-only containment; target scans and volume findings remain advisory. Packet replay supplies ARP/SYN activity and explicitly configured TCP decoy hits (`--decoy-ip`). Risk uses C's `assess()` and its native 0–1 anomaly scale. The strongest observed anomaly is retained for this replay session; decay and persistence of that score are future work. Baseline files are not automatically enabled because their traffic interval must be agreed before connecting volume measurements.
+
+Device JSON can optionally supply reported `ports`, `vendor`, `model`, `eol`, `default_creds`, and `cloud_only` facts for assessment. A bounded `persona` is allowed only when the input explicitly says `simulated: true`. Scanned destination ports aren't evidence that a service is open on the source device. The CLI shows C's native confidence labels; mapping them into the cloud contract remains a cloud-adapter task.
 
 ## Replay packet files
 
@@ -14,7 +50,7 @@ The replay environment has been created locally at `agent/.venv`. To set it up o
 
 ```bash
 python3 -m venv agent/.venv
-agent/.venv/bin/python -m pip install -e 'agent[replay]'
+agent/.venv/bin/python -m pip install -e 'agent[replay]' -e ./ml
 ```
 
 On Windows PowerShell, use `py -m venv agent/.venv` and `agent\.venv\Scripts\python.exe` in place of the Unix environment path below.
@@ -25,10 +61,10 @@ Start with a generated scan capture in learning mode:
 agent/.venv/bin/python agent/agent.py --replay agent/fixtures/scan.pcap
 ```
 
-You should see one scan finding and `would have: quarantine`. Enable mock quarantine explicitly:
+You should see one supporting scan finding and no restriction. To exercise actionable ARP detection with mock quarantine:
 
 ```bash
-agent/.venv/bin/python agent/agent.py --replay agent/fixtures/scan.pcap --arm
+agent/.venv/bin/python agent/agent.py --replay agent/fixtures/arp_scan.pcap --arm
 ```
 
 Try `normal.pcap`, `slow_targets.pcap`, and `protected_arp.pcap` in the same folder. The [fixture guide](fixtures/README.md) explains each expected outcome. The captures are **generated test data**, not recordings from real devices. The parser really reads their encoded headers and timestamps; there is no filename-to-outcome shortcut.
@@ -49,7 +85,7 @@ Packet-file decoding uses [Scapy's capture readers](https://scapy.readthedocs.io
 
 Capture spacing is preserved without sleeping. Original capture timestamps are recorded in detection evidence and mapped onto the replay session clock for safety timers; event timestamps are replay-session times. The 30-second warmup is **enforced**, so a short capture can produce a finding with action suppressed by warmup. Generated fixtures include activity past that boundary.
 
-Replay state uses `agent/runtime/replay/`, separate from the original walkthrough. It preserves mock restrictions across runs. Use `--state-dir` with a fresh directory for independent experiments; interrupted/corrupt replays may already have appended earlier events, which stay local. There is no cloud uploader or live enforcement in this build.
+Replay state uses `agent/runtime/replay/`, separate from the original walkthrough. It preserves mock restrictions across runs. Use `--state-dir` with a fresh directory for independent experiments; interrupted/corrupt replays may already have appended earlier events, which stay local. Cloud upload is opt-in using `--connect`; enforcement stays mocked.
 
 ## Run from the repository root
 
@@ -108,11 +144,11 @@ The original demo detector checks **already summarized synthetic 10-second windo
 - Restore is available immediately, including during warmup, learning mode, and cooldown. It starts a 60-second grace period.
 - Restarts return to learning mode but reapply previously saved mock restrictions. Unknown or newly protected devices are skipped when loading saved restrictions.
 - Invalid state stops startup with an error rather than silently discarding it.
-- All events are marked `simulated: true`, include UUIDs, and are appended to `runtime/outbox.jsonl`. They are never uploaded or acknowledged by this build.
+- All events are marked `simulated: true`, include UUIDs, and are appended to `runtime/outbox.jsonl`. Supported detection records are uploaded only with `--connect`; the full local audit log is retained.
 - `runtime/state.json` saves enforcement status and safety timers. Traffic counters are session-local. Runtime files are ignored by Git.
 - The walkthrough resets any restrictions from an interrupted earlier walkthrough, with an explicit message, before beginning its example.
 
-Inspect `agent/runtime/outbox.jsonl` after a run. `actions_taken` records mock actions that succeeded; `would_have` records learning-mode proposals. The outbox doubles as this milestone's local audit trail. These are provisional **local** records; cloud serialization must be aligned with Worker B's `/contract` before integration.
+Inspect `agent/runtime/outbox.jsonl` after a run. `actions_taken` records mock actions that succeeded; `would_have` records learning-mode proposals. The outbox is the full local audit trail. The cloud adapter exports only supported detection records and preserves the rest locally.
 
 For an isolated run, pass `--state-dir /path/to/scratch-directory`. To reset demo history, use a new directory or remove the simulation runtime files while the agent is stopped.
 
@@ -121,23 +157,29 @@ For an isolated run, pass `--state-dir /path/to/scratch-directory`. To reset dem
 From the repository root:
 
 ```bash
-python3 -m unittest discover -s agent/tests -v
+python3 -m unittest discover -s agent/tests -p test_agent.py -v
 ```
 
-That command runs the original standard-library tests; it skips packet tests when Scapy is absent. To run **all** tests, including packet replay:
+That command runs only the original standard-library tests. Install `agent/requirements-test.txt` and use pytest to include the packet, cloud, and threat-matrix tests. To run **all** tests, including packet replay:
 
 ```bash
-agent/.venv/bin/python -m unittest discover -s agent/tests -v
+agent/.venv/bin/python -m pytest agent/tests ml/tests -q
 ```
 
 The tests use temporary directories, generated packets, and a controllable clock. They require no Linux privileges or real network traffic. Packet cases cover window expiry, independent MACs, byte accounting, repeated targets, DNS, protected devices, malformed captures, and an ongoing scan spanning startup warmup.
 
 ## Later milestones
 
-1. Adapt Worker C's real `securiot_ml` detector and assessment fields.
+1. Extend the current C adapter with explicitly configured decoy hits and agreed baseline intervals.
 2. Add Scapy packet capture/discovery and decoy listeners on the Linux router.
 3. Add nftables enforcement and a local panic command, with rollback tests on Linux.
-4. Integrate Worker B's contract for authenticated cloud sync and durable outbox delivery.
+4. Verify the connected runner against the deployed API/database and integrate dashboard action creation.
 5. Add the local API/web bundle, systemd deployment, and optional smart-plug mapping.
 
 The production network and cloud components are intentionally still pending. This directory owns the agent; the other team tracks remain in `api/`, `ml/`, `web/`, `/contract`, and `/sim`.
+
+Current guards: protected devices still raise alerts; only automatic actions are blocked.
+ARP quantity needs at least eight distinct targets for containment. Explicit decoy
+IPs can be passed repeatedly with `--decoy-ip`. C's current rules remain the default;
+the trained artifact is pending. Vulnerability flags distinguish reported/simulated
+facts and candidate CVEs, and do not claim a local scan or firmware verification.

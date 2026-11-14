@@ -4,12 +4,13 @@ These files contain **synthetic Ethernet frames created locally**, not recording
 of real devices or attacks. No packets were transmitted to generate them. They
 exercise the real packet-file parser and collector while enforcement stays mocked.
 
-| Capture | Expected preview result |
+| Capture | Expected result |
 | --- | --- |
 | `normal.pcap` | Normal DNS/reply traffic plus repeated SYNs to one target: no scan finding |
-| `scan.pcap` | Camera reaches 20 distinct IP/port targets inside 10 seconds: one scan finding |
+| `scan.pcap` | C reports supporting target-scan evidence; preview can propose quarantine |
+| `arp_scan.pcap` | C detects 30 camera ARP requests in 10 seconds: eligible for mock quarantine |
 | `slow_targets.pcap` | The same number of targets spread over 19 seconds: below the window threshold |
-| `protected_arp.pcap` | Protected laptop emits 30 ARP requests inside 10 seconds: finding, no restriction |
+| `protected_arp.pcap` | Protected laptop emits 30 ARP requests inside 10 seconds: C ignores the protected MAC; no restriction (preview records a finding) |
 
 Each capture starts with normal activity, then crosses the startup warmup period.
 `devices.json` identifies the two known, simulated devices and the protected laptop.
