@@ -63,9 +63,9 @@ sudo python agent/agent.py --api $API_URL --key $AGENT_API_KEY
 
 Set `DATABASE_URL`, `GEMINI_API_KEY`, `JWT_SECRET`, and `AGENT_API_KEY` in `.env`.
 
-## The vision
+## The Mission
 
-Every home router should defend like an enterprise firewall, no security degree required. Next up: a community threat feed, Matter/Thread checks, and tamper-proof audit logs on Solana.
+Every home router should defend like an enterprise firewall, no security degree required.
 
 **SecurIoT: security for the devices you can't patch.**
 
