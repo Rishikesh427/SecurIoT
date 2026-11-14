@@ -1,56 +1,72 @@
-# SecurIoT
-IoT Sentinel
+# 🛡️ IoT Sentinel
 
-Your smart TV is spying on you. Your smart plug is a backdoor. And you can’t patch either one.
+**Your smart TV is spying on you. Your smart plug is a backdoor. And you can't patch either one.**
 
-A 2026 Bitdefender/NETGEAR study of 10.4 million homes found that smart TVs, smart plugs, and NAS devices make up 67.1% of all observed home vulnerabilities. The owners can’t fix the firmware, and most never see the threat coming.
+A 2026 Bitdefender/NETGEAR study of 10.4 million homes found that smart TVs, smart plugs, and NAS devices make up **67.1% of all observed home vulnerabilities**. Owners can't fix the firmware, and most never see the threat coming.
 
-IoT Sentinel fixes the one place you can: the network.
+**IoT Sentinel fixes the one place you can: the network.**
 
-What if your router could think?
+## What if your router could think?
 
-Sentinel sits at the router and does what no consumer product does today:
+- **Sees everything.** Every phone, speaker, projector, and plug is discovered and fingerprinted within seconds of joining.
+- **Knows what's normal.** It learns each device's habits (destinations, data volume, active hours) and spots the moment one goes rogue.
+- **Explains in plain English.** Gemini turns "anomaly score 0.91" into "Your phone just scanned 40 devices in 5 seconds. Here's why that matters."
+- **Acts before you wake up.** It escalates automatically: notify, block internet, quarantine, then cut the device off entirely.
+- **Never locks you out.** Learning mode, a critical-device safeguard, and a one-click undo on every action.
 
-Sees everything. Every phone, speaker, projector, and plug is discovered and fingerprinted within seconds of joining.
-Knows what’s normal. It learns each device’s habits (destinations, data volume, active hours) and spots the moment one goes rogue.
-Explains in plain English. Gemini turns “anomaly score 0.91” into “Your phone just scanned 40 devices in 5 seconds. Here’s why that matters.”
-Acts before you wake up. It escalates automatically: notify, block internet, quarantine, then cut the device off entirely.
-Never locks you out. Learning mode, a critical-device safeguard, and a one-click undo on every action.
-Watch it work (the live demo)
-Everything on the dashboard is green.
-We run an attack from a phone: a network scan plus a beacon to a suspicious domain.
-In seconds, Sentinel flags it, Gemini explains it, and the device is walled off.
-The Bluetooth speaker goes silent, a physical proof that containment worked.
-One click on Restore, and everything is back.
+## Watch it work (live demo)
+
+1. Everything on the dashboard is green.
+2. We attack from a phone: a network scan plus a beacon to a suspicious domain.
+3. **In seconds**, Sentinel flags it, Gemini explains it, and the device is walled off.
+4. The Bluetooth speaker goes silent, physical proof that containment worked.
+5. One click on **Restore**, and everything is back.
 
 Time to containment is on screen. No guesswork.
 
-Why it wins
-Others	IoT Sentinel
-Alert you, then wait	Acts automatically, safely
-Need vendor firmware patches	Protects devices that can never be patched
-Show jargon and logs	Gemini explains in human language
-One-size-fits-all rules	Per-device behavioral baselines
-Black-box actions	Audit log with undo for everything
-Under the hood
-Risk score 0-100: known exploited CVEs, end-of-life firmware, exposed ports, default credentials, and live anomalies.
-Detection: z-score baselines plus an Isolation Forest.
-Reasoning: Gemini classifies devices and writes the risk analysis, with a rules-only fallback so it never goes blind.
-Enforcement: real nftables rules and Bluetooth control on a laptop acting as the router.
-Platform: FastAPI and React on Vultr, time-series data in Tiger Data, our demo domain from GoDaddy Registry, and the repo workflow on Entire.
-Try it
-bash
-cd ml && pip install -r requirements.txt && pytest -q   # scorer
-cd api && uvicorn main:app --reload                      # backend
-cd web && npm install && npm run dev                     # dashboard
+## Why it wins
+
+| Others | IoT Sentinel |
+|---|---|
+| Alert you, then wait | **Acts automatically, safely** |
+| Need vendor firmware patches | **Protects devices that can never be patched** |
+| Show jargon and logs | **Gemini explains in human language** |
+| One-size-fits-all rules | **Per-device behavioral baselines** |
+| Black-box actions | **Audit log with undo for everything** |
+
+## Under the hood
+
+| Folder | What it does |
+|---|---|
+| `/agent` | Router laptop: discovers devices, collects flows, enforces `nftables` and Bluetooth rules |
+| `/api` | FastAPI: auth, ingest, response ladder, audit log |
+| `/ml` | Risk scorer, baselining (z-score + Isolation Forest), Gemini prompts |
+| `/web` | React dashboard: device grid, live feed, explanations, one-click actions |
+
+- **Risk score 0-100:** known exploited CVEs (+30), end-of-life firmware (+20), exposed ports (+15), cloud-only (+10), default credentials (+25), live anomalies (up to +40).
+- **Reasoning:** Gemini classifies devices and writes the risk analysis, with a rules-only fallback so it never goes blind.
+- **Platform:** **Vultr** hosting, **Tiger Data** time-series, **GoDaddy Registry** demo domain, **Entire** repo workflow.
+
+```
+Agent → /ingest → DB → Scorer + Baseline → Gemini
+      → Response engine → /commands → Agent enforces → Audit log → Dashboard
+```
+
+## Try it
+
+```bash
+cd ml && pip install -r requirements.txt && pytest -q    # scorer tests
+cd api && uvicorn main:app --reload                       # backend
+cd web && npm install && npm run dev                      # dashboard
 sudo python agent/agent.py --api $API_URL --key $AGENT_API_KEY
+```
 
-Set DATABASE_URL, GEMINI_API_KEY, JWT_SECRET, and AGENT_API_KEY in .env. Demo login is on the slide.
+Set `DATABASE_URL`, `GEMINI_API_KEY`, `JWT_SECRET`, and `AGENT_API_KEY` in `.env`.
 
-The vision
+## The vision
 
-Every home router should defend like an enterprise firewall, with no security degree required. Next up: a community threat feed, Matter/Thread checks, and tamper-proof audit logs on Solana.
+Every home router should defend like an enterprise firewall, no security degree required. Next up: a community threat feed, Matter/Thread checks, and tamper-proof audit logs on Solana.
 
-IoT Sentinel: security for the devices you can’t patch.
+**IoT Sentinel: security for the devices you can't patch.**
 
-Only test on devices and networks you own.
+*Only test on devices and networks you own.*
