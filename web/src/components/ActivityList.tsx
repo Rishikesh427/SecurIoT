@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { clock, eventMeta, severityDot, shortLabel } from "../lib/format";
-import { plainEvent, plainOutcome } from "../lib/plain";
+import { plainEvent } from "../lib/plain";
 import type { Device, SecurEvent } from "../types";
 import { Card } from "./ui";
+import { WhyAlert } from "./WhyAlert";
+import { outcomeSummary } from "../lib/eventDetails";
 
 /** Plain summary per event; the raw log entry opens on click. */
 export function ActivityList({
@@ -29,7 +31,7 @@ export function ActivityList({
         <ol className="divide-y divide-hairline">
           {shown.map((e) => {
             const m = eventMeta[e.kind] ?? { severity: "info" as const };
-            const outcome = plainOutcome(e);
+            const outcome = outcomeSummary(e);
             const expanded = open === e.id;
             return (
               <li key={e.id} className="animate-fade-in">
@@ -53,7 +55,7 @@ export function ActivityList({
                 {expanded && (
                   <div className="animate-expand px-5 pb-4 pl-[42px]">
                     <pre className="overflow-x-auto rounded-xl bg-fill px-4 py-3 font-mono text-[11.5px] leading-relaxed text-ink-2">
-                      {JSON.stringify({ kind: e.kind, ts: e.ts, mac: e.mac, evidence: e.evidence, actions_taken: e.actions_taken, would_have: e.would_have, source: e.source, id: e.id }, null, 2)}
+                      <WhyAlert event={e} />
                     </pre>
                     <button onClick={() => onSelect(e.mac)} className="mt-2 text-[13px] font-medium text-ink-2 hover:text-ink">
                       View device
