@@ -1,0 +1,11 @@
+{
+  "devices": [
+    {"mac":"02:00:00:00:00:20","ip":"10.42.0.20","name":"camera","label":"Living room camera (simulated)","type":"camera","vendor":"Edimax","model":"IC-7100","kev":"possible","ports":[23,2323,80,8080],"bytes_in":1024,"bytes_out":4096,"dests":["10.42.0.1"],"last_seen":"2026-11-14T12:00:00Z","simulated":true,"has_feed":true,"eol":true,"default_creds":true,"cloud_only":false,"anomaly":0,"risk":75,"band":"high","confidence":"medium","reasons":["Possible KEV match (+15)","End-of-life firmware (+20)","Telnet open (+15)","Default password (+25)"],"status":"normal"},
+    {"mac":"02:00:00:00:00:30","ip":"10.42.0.30","name":"phone","label":"Attacker phone (simulated fixture)","type":"phone","vendor":null,"ports":[],"bytes_in":0,"bytes_out":0,"dests":[],"last_seen":"2026-11-14T12:00:00Z","simulated":true,"has_feed":false,"eol":false,"default_creds":false,"cloud_only":false,"anomaly":0,"risk":0,"band":"low","confidence":"low","reasons":[],"status":"normal"},
+    {"mac":"02:00:00:00:00:40","ip":"10.42.0.40","name":"projector","label":"Healthy projector (simulated fixture)","type":"projector","vendor":null,"ports":[],"bytes_in":2048,"bytes_out":1024,"dests":[],"last_seen":"2026-11-14T12:00:00Z","simulated":true,"has_feed":false,"eol":false,"default_creds":false,"cloud_only":false,"anomaly":0,"risk":0,"band":"low","confidence":"low","reasons":[],"status":"normal"}
+  ],
+  "events": [
+    {"id":"4e23d283-4abd-4e1f-8098-4afdc5b47e83","mac":"02:00:00:00:00:20","ts":"2026-11-14T12:00:00Z","kind":"new_device","evidence":{"simulated":true},"actions_taken":[],"would_have":[],"source":"simulator"},
+    {"id":"5c611ea4-8a64-4ae4-a570-432b5f3210ef","mac":"02:00:00:00:00:20","ts":"2026-11-14T12:00:05Z","kind":"decoy_touch","evidence":{"simulated":true,"destination_ip":"10.42.0.50","destination_port":23,"learning_mode":true},"actions_taken":[],"would_have":["block_wan","quarantine"],"source":"simulator"}
+  ]
+}

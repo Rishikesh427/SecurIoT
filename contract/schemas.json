@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://securiot.invalid/contract/schemas.json",
+  "title": "SecurIoT v3.2 shared contract",
+  "$ref": "#/$defs/Ingest",
+  "$defs": {
+    "LoginRequest": {
+      "type": "object", "required": ["username", "password"],
+      "properties": {
+        "username": {"type": "string", "minLength": 1, "maxLength": 100},
+        "password": {"type": "string", "minLength": 1, "maxLength": 1024}
+      }
+    },
+    "TokenResponse": {
+      "type": "object", "additionalProperties": false, "required": ["access_token", "token_type", "expires_in"],
+      "properties": {
+        "access_token": {"type": "string"}, "token_type": {"const": "bearer"},
+        "expires_in": {"type": "integer", "minimum": 60, "maximum": 86400}
+      }
+    },
+    "UserResponse": {
+      "type": "object", "additionalProperties": false, "required": ["id", "username", "role"],
+      "properties": {
+        "id": {"type": "string", "format": "uuid"}, "username": {"type": "string"},
+        "role": {"enum": ["judge", "admin"]}
+      }
+    },
+    "Mac": {"type": "string", "pattern": "^([0-9a-f]{2}:){5}[0-9a-f]{2}$"},
+    "ActionName": {"enum": ["block_wan", "quarantine", "restore", "restore_all"]},
+    "Device": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mac", "ip", "name", "label", "type", "vendor", "ports", "bytes_in", "bytes_out", "dests", "last_seen", "simulated", "has_feed", "eol", "default_creds", "cloud_only", "anomaly", "risk", "band", "confidence", "reasons", "status"],
+      "properties": {
+        "mac": {"$ref": "#/$defs/Mac"}, "ip": {"type": "string", "format": "ipv4"},
+        "name": {"type": "string", "minLength": 1}, "label": {"type": "string"},
+        "type": {"type": "string"}, "vendor": {"type": ["string", "null"]},
+        "model": {"type": ["string", "null"]}, "kev": {"enum": ["confirmed", "possible", "none", "unknown"]},
+        "ports": {"type": "array", "uniqueItems": true, "items": {"type": "integer", "minimum": 1, "maximum": 65535}},
+        "bytes_in": {"type": "integer", "minimum": 0}, "bytes_out": {"type": "integer", "minimum": 0},
+        "dests": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "last_seen": {"type": "string", "format": "date-time"},
+        "simulated": {"type": "boolean"}, "has_feed": {"type": "boolean"},
+        "eol": {"type": ["boolean", "null"]}, "default_creds": {"type": ["boolean", "null"]}, "cloud_only": {"type": ["boolean", "null"]},
+        "anomaly": {"type": "number", "minimum": 0, "maximum": 40},
+        "risk": {"type": "integer", "minimum": 0, "maximum": 100},
+        "band": {"enum": ["low", "medium", "high"]},
+        "confidence": {"enum": ["low", "medium", "high"]},
+        "reasons": {"type": "array", "items": {"type": "string"}},
+        "status": {"enum": ["normal", "wan_blocked", "quarantined", "offline"]}
+      }
+    },
+    "Event": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "mac", "ts", "kind", "evidence", "actions_taken", "would_have", "source"],
+      "properties": {
+        "id": {"type": "string", "format": "uuid"}, "mac": {"$ref": "#/$defs/Mac"},
+        "ts": {"type": "string", "format": "date-time"},
+        "kind": {"enum": ["scan_arp", "scan_targets", "decoy_touch", "new_domain", "new_device"]},
+        "evidence": {"type": "object"},
+        "actions_taken": {"type": "array", "items": {"$ref": "#/$defs/ActionName"}},
+        "would_have": {"type": "array", "items": {"$ref": "#/$defs/ActionName"}},
+        "source": {"enum": ["agent", "simulator"]}
+      }
+    },
+    "Ingest": {
+      "type": "object", "additionalProperties": false, "required": ["devices", "events"],
+      "properties": {
+        "devices": {"type": "array", "items": {"$ref": "#/$defs/Device"}},
+        "events": {"type": "array", "items": {"$ref": "#/$defs/Event"}}
+      }
+    },
+    "Action": {
+      "type": "object", "additionalProperties": false, "required": ["action"],
+      "properties": {"action": {"$ref": "#/$defs/ActionName"}, "mac": {"$ref": "#/$defs/Mac"}},
+      "if": {"properties": {"action": {"const": "restore_all"}}},
+      "then": {"not": {"required": ["mac"]}}, "else": {"required": ["mac"]}
+    },
+    "Command": {
+      "type": "object", "additionalProperties": false, "required": ["id", "created_at", "action"],
+      "properties": {
+        "id": {"type": "string", "format": "uuid"},
+        "created_at": {"type": "string", "format": "date-time"},
+        "action": {"$ref": "#/$defs/ActionName"}, "mac": {"$ref": "#/$defs/Mac"}
+      },
+      "if": {"properties": {"action": {"const": "restore_all"}}},
+      "then": {"not": {"required": ["mac"]}}, "else": {"required": ["mac"]}
+    },
+    "Ack": {
+      "type": "object", "additionalProperties": false, "required": ["status", "ts"],
+      "properties": {
+        "status": {"enum": ["applied", "failed"]}, "ts": {"type": "string", "format": "date-time"},
+        "detail": {"type": "string"}
+      }
+    },
+    "Policy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["learning_mode", "protected_macs", "ladder"],
+      "properties": {
+        "learning_mode": {"type": "boolean", "default": true},
+        "protected_macs": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/Mac"}},
+        "ladder": {
+          "type": "object", "additionalProperties": false, "required": ["notify", "block_wan", "quarantine"],
+          "properties": {"notify": {"type": "boolean"}, "block_wan": {"type": "boolean"}, "quarantine": {"type": "boolean"}}
+        }
+      }
+    },
+    "Sync": {
+      "type": "object", "additionalProperties": false, "required": ["etag", "policy", "commands"],
+      "properties": {
+        "etag": {"type": "string"}, "policy": {"$ref": "#/$defs/Policy"},
+        "commands": {"type": "array", "items": {"$ref": "#/$defs/Command"}}
+      }
+    },
+    "AuditEntry": {
+      "type": "object", "additionalProperties": false, "required": ["id", "ts", "actor", "action", "outcome"],
+      "properties": {
+        "id": {"type": "string", "format": "uuid"}, "ts": {"type": "string", "format": "date-time"},
+        "actor": {"type": "string"}, "action": {"type": "string"},
+        "mac": {"$ref": "#/$defs/Mac"}, "command_id": {"type": "string", "format": "uuid"},
+        "outcome": {"enum": ["requested", "applied", "failed", "would_have"]}
+      }
+    }
+  }
+}

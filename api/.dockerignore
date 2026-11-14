@@ -1,0 +1,6 @@
+*
+!requirements.txt
+!*.py
+!migrations/
+!migrations/*.sql
+!Dockerfile
