@@ -1,4 +1,10 @@
-# Shared contract v3.2
+# CasaWarden shared contract v3.2
+
+> **Naming:** CasaWarden was previously called SecurIoT. Existing schema IDs,
+> metadata, and internal identifiers retain the legacy name so current producers,
+> consumers, and stored records remain compatible. The project rename does not
+> change API routes or payload fields. See the
+> [project naming note](../README.md#project-name-and-compatibility).
 
 `schemas.json` is JSON Schema draft 2020-12. Its root validates the ingest batch;
 individual types are under `$defs`. `fixtures.json` is a valid ingest batch for

@@ -1,4 +1,24 @@
-# 🛡️ SecurIoT
+# 🛡️ CasaWarden
+
+## Project name and compatibility
+
+**CasaWarden is the new name of the project previously called SecurIoT.** Use
+CasaWarden in documentation, presentations, and new project descriptions.
+
+Existing internal identifiers intentionally retain the legacy name to keep
+imports, deployment configuration, authentication, persisted data, and recovery
+behavior compatible. Examples include the `securiot_agent` and `securiot_ml`
+Python packages, the `securiot-agent` command, `SECURIOT_*` environment variables,
+the PostgreSQL schema and Docker Compose project named `securiot`, JWT
+issuer/audience defaults, browser storage keys, and the `securiot_guard` firewall
+tables and ownership markers. Configuration/state paths such as `/etc/securiot`
+and `/var/lib/securiot` also keep their existing names.
+
+Copy documented commands and identifiers exactly as written. These names belong
+to CasaWarden's existing implementation; they do not indicate a separate product.
+Some current UI labels, API metadata, schemas, and logs may still display
+SecurIoT. This documentation rename leaves those implementation names in place;
+renaming them would require a coordinated compatibility and migration change.
 
 **Your smart TV is spying on you. Your smart plug is a backdoor. And you can't patch either one.**
 
@@ -18,7 +38,7 @@ A 2026 Bitdefender/NETGEAR study of 10.4 million homes found that smart TVs, sma
 
 1. Everything on the dashboard is green.
 2. We attack from a phone: a network scan plus a beacon to a suspicious domain.
-3. **In seconds**, SecurIoT flags it, Gemini explains it, and the device is walled off.
+3. **In seconds**, CasaWarden flags it, Gemini explains it, and the device is walled off.
 4. The Bluetooth speaker goes silent, physical proof that containment worked.
 5. One click on **Restore**, and everything is back.
 
@@ -26,7 +46,7 @@ Time to containment is on screen. No guesswork.
 
 ## Why it wins
 
-| Others | SecurIoT |
+| Others | CasaWarden |
 |---|---|
 | Alert you, then wait | **Acts automatically, safely** |
 | Need vendor firmware patches | **Protects devices that can never be patched** |
@@ -85,6 +105,6 @@ and fallback behavior. No schema migration is needed for this feature.
 
 Every home router should defend like an enterprise firewall, no security degree required.
 
-**SecurIoT: security for the devices you can't patch.**
+**CasaWarden: security for the devices you can't patch.**
 
 *Only test on devices and networks you own.*

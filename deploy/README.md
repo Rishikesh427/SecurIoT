@@ -1,4 +1,11 @@
-# Person B: hours 1–20
+# CasaWarden deployment: Person B hours 1–20
+
+> **Naming:** CasaWarden was previously called SecurIoT. Backend identifiers such
+> as the `securiot` database schema and Compose project, `SECURIOT_*` variables,
+> JWT defaults, package names, and saved configuration/state paths intentionally
+> retain the legacy spelling. Keep the documented values to avoid disrupting
+> existing deployments, authentication, or data. See the
+> [project naming note](../README.md#project-name-and-compatibility).
 
 The API/web hosting runs locally, without a paid hosting service. FastAPI runs in one
 container; Caddy serves a static bundle and proxies the API in another.
