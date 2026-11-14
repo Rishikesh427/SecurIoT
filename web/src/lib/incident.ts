@@ -56,7 +56,6 @@ export function summarize(incident: SecurEvent, device: Device | undefined): Sum
     });
   }
   const name = device ? shortLabel(device.label).toLowerCase() : "a device";
-<<<<<<< Updated upstream
   const simulated = incident.source === "simulator" || incident.evidence.simulated === true || incident.evidence.enforcement === "mock";
   const headline = simulated ? "Simulated observation" :
     incident.actions_taken.some(a => a === "restore" || a === "restore_all") ? "Restore reported" :
@@ -65,23 +64,6 @@ export function summarize(incident: SecurEvent, device: Device | undefined): Sum
   const body = `Your ${name} ${plainEvent(incident).toLowerCase()}. ${plainOutcome(incident) ?? "No containment action was reported for this event"}.`;
   return withGemini(incident, { headline, body, spoken: body,
     next: "Review the recorded activity and verify the device's settings before changing its network access." });
-=======
-  const what = incident.kind === "decoy_touch" ? "probing other devices on your network, including a decoy" : "scanning other devices on your network";
-  const contained = incident.actions_taken.length > 0;
-  return withGemini(incident, contained
-    ? {
-        headline: "Threat contained",
-        body: `Your ${name} started ${what}, which is typical of malware. It's been isolated from your network.`,
-        next: "Unplug and replug it to clear it from memory, then change its default password before restoring it.",
-        spoken: `Alert. Your ${name} started attacking other devices. CasaWarden has isolated it from your network.`,
-      }
-    : {
-        headline: "Threat detected",
-        body: `Your ${name} started ${what}, which is typical of malware. Learning mode is on, so CasaWarden only watched. With protection on, it would have been isolated.`,
-        next: "Turn on automatic protection so threats like this are isolated right away.",
-        spoken: `Warning. Your ${name} is attacking other devices. Learning mode is on, so it was not isolated.`,
-      });
->>>>>>> Stashed changes
 }
 
 export function deviceSummary(d: Device): { body: string; next: string } {
