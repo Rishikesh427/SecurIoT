@@ -19,7 +19,7 @@ from api.main import create_app
 from api.settings import Settings, environment
 from api.storage import MemoryDatabase
 from api.telemetry import Ingest
-from ml.securiot_ml.advisor import configured
+from ml.securiot_ml.gemini import configured
 from ml.securiot_ml.explain import action_summary, template
 
 

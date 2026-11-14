@@ -55,7 +55,8 @@ The explanation pool has two workers, at most four running/queued jobs, and a
 512-entry LRU cache keyed by event ID, sanitized facts, and recorded outcome.
 Successful results expire after one hour; failures retry after 60 seconds.
 The provider socket timeout is six seconds. Work has an eight-second service
-deadline, including queue time; late results are discarded. A stalled call stays
+deadline, including queue time; queued calls get only the remaining provider
+budget and expired jobs skip Gemini. Late results are discarded. A stalled call stays
 inside the work bound until it exits, and subsequent reads show the template.
 
 Gemini sees selected numeric counters, ports, flags and device factors, never

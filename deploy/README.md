@@ -266,7 +266,8 @@ Failures and saturation return `template`; the dashboard uses that template too.
 The pool has two workers and at most four running/queued jobs. A 512-entry LRU
 cache includes event identity, sanitized facts and recorded actions; generated
 results last one hour and failures retry after 60 seconds. The provider socket
-timeout is six seconds; results past the eight-second service deadline are
+timeout is at most six seconds, reduced by time spent queued. Jobs that reach
+the eight-second service deadline before starting skip Gemini; late results are
 discarded. Reads never wait for generation, even if a provider call stalls.
 
 Gemini receives allowlisted counters, ports, flags and device factors, not raw

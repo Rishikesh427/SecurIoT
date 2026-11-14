@@ -156,3 +156,27 @@ def test_cache_invalidation_ttl_bound_and_response_mutation(monkeypatch):
         assert all(row['explanation_status'] != 'pending' for row in service.decorate(batch['events'], batch['devices']))
     finally:
         service.close()
+
+
+@pytest.mark.parametrize('elapsed,expected_calls', [(3, 2), (9, 1)])
+def test_queue_time_reduces_provider_budget_and_expired_jobs_skip_provider(monkeypatch, elapsed, expected_calls):
+    clock = [0.0]; started, release = Event(), Event(); budgets = []
+    monkeypatch.setattr(module.time, 'monotonic', lambda: clock[0])
+    def generated(event, device, **kwargs):
+        budgets.append(kwargs['timeout'])
+        if len(budgets) == 1:
+            started.set(); release.wait(5)
+        return REPLY.copy()
+    monkeypatch.setattr(module, 'explain', generated)
+    service = module.ExplanationService(workers=1, max_pending=2); service.configured = True
+    batch = data()
+    try:
+        service.decorate(batch['events'], batch['devices']); assert started.wait(1)
+        clock[0] = elapsed; release.set(); wait_for_worker(service)
+        assert len(budgets) == expected_calls and budgets[0] == 6
+        if expected_calls == 2:
+            assert budgets[1] == 5
+        else:
+            assert all(row['explanation_status'] == 'template' for row in service.decorate(batch['events'], batch['devices']))
+    finally:
+        release.set(); service.close()
