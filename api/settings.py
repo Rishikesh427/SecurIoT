@@ -21,6 +21,7 @@ class Settings:
     token_minutes: int = 60
     root_path: str = ""
     cors_origins: str = "http://localhost:5173"
+    agent_api_key: str = ""
 
     @classmethod
     def load(cls):
@@ -36,4 +37,4 @@ class Settings:
             raise ValueError("JWT_EXPIRE_MINUTES must be between 1 and 1440")
         return cls(url, secret, env.get("JWT_ISSUER", "securiot"),
                    env.get("JWT_AUDIENCE", "securiot-dashboard"), minutes,
-                   env.get("ROOT_PATH", ""), env.get("CORS_ORIGINS", "http://localhost:5173"))
+                   env.get("ROOT_PATH", ""), env.get("CORS_ORIGINS", "http://localhost:5173"), env.get("AGENT_API_KEY", ""))

@@ -73,7 +73,7 @@ def create_app(settings=None, database=None):
 
     @app.get("/healthz", tags=["platform"])
     def health():
-        return {"status": "ok", "service": "securiot-api", "stage": "platform-h4-8"}
+        return {"status": "ok", "service": "securiot-api", "stage": "platform-h8-12"}
 
     @app.get("/readyz", tags=["platform"])
     def ready(request: Request):
@@ -96,6 +96,8 @@ def create_app(settings=None, database=None):
     def me(user=Depends(current_user)):
         return user
 
+    from api.telemetry import router
+    app.include_router(router(current_user))
     return app
 
 

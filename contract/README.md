@@ -57,6 +57,20 @@ the device by DHCP source IP. GET /feed/{mac} returns image bytes;
 GET /feed/{mac}/meta returns {last_ts: timestamp|null}. Cloud relay is later work.
 Feed tokens and agent keys must never appear in VITE_* variables.
 
-Storage note: events use a Timescale primary key `(id, ts)`. Always retain both
-values on retries. Global UUID deduplication across conflicting timestamps must
-be enforced by the future ingest implementation; this schema does not imply it.
+H8–12 routes are now implemented. Agent routes require X-API-Key; dashboard reads
+require the judge JWT. POST /ingest accepts at most 1000 devices and 1000 events.
+Its counts report inserted events and inserted/newer device snapshots; exact
+retries return zero. Devices upsert by MAC only when last_seen is newer.
+Events deduplicate globally by UUID using a transaction-scoped lock across API
+workers. Reusing a UUID with different content (including ts) returns 409 and
+rolls back the batch. Events remain immutable after first acceptance.
+
+GET /sync returns an opaque policy-revision etag in JSON and a quoted ETag header.
+Pass the JSON value as ?etag=; unchanged policy with no pending commands gives
+304. Pending commands always produce 200, even with a matching etag.
+POST /commands/{id}/ack accepts Ack and returns 204; /ack?command_id={id} is an
+alias. Identical retries succeed; conflicting acknowledgements return 409;
+unknown commands return 404. Acknowledgement records the agent's result without
+claiming cloud-side enforcement. Commands stop appearing in sync after ack.
+GET /devices returns all snapshots ordered by MAC. GET /events returns newest
+first with ?limit=100 (1–1000) and ?offset=0 pagination.
