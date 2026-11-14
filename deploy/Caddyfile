@@ -4,7 +4,7 @@
     handle_path /api/* {
         reverse_proxy api:8000
     }
-    @backend path /healthz /readyz /auth/* /ingest /sync /ack /commands/* /devices /devices/* /events /actions /policy /audit /audit/*
+    @backend path /healthz /readyz /storage /auth/* /ingest /sync /ack /commands/* /devices /devices/* /events /actions /policy /audit /audit/*
     handle @backend {
         reverse_proxy api:8000
     }

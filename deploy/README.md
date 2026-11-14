@@ -1,4 +1,4 @@
-# Person B: hours 1–12
+# Person B: hours 1–16
 
 The API/web hosting runs locally, without a paid hosting service. FastAPI runs in one
 container; Caddy serves a static bundle and proxies the API in another.
@@ -29,21 +29,23 @@ The API image copies only source, migrations, and requirements. It runs as a
 non-root user, has a process healthcheck, and does not publish port 8000. Compose
 injects `api/.env` into the API container only; no secrets enter the image or web
 bundle. `/api/healthz` is liveness; `/api/readyz` also checks database initialization.
-Database outages return 503 for readiness/auth and do not masquerade as a demo store.
+With STORAGE_MODE=auto, connection loss switches to explicit demo memory storage;
+readiness and every response identify the storage mode. STORAGE_MODE=postgres
+keeps fail-closed 503 behavior. Missing migrations and SQL errors do not trigger fallback.
 
 ## Tiger Data and the judge login
 
 Use your existing Tiger Data connection in DATABASE_URL, preserving its TLS
 settings (`sslmode=require` or stronger). This setup does not provision a paid
 database or assume a free trial lasts forever. The H4–8 task requires an existing
-PostgreSQL database with TimescaleDB; automatic SQLite fallback is later work.
+PostgreSQL database with TimescaleDB; H12–16 adds an in-memory SQLite demo fallback.
 
 Required settings in ignored `api/.env`:
 
 - DATABASE_URL: the PostgreSQL connection URI; URL-encode special password characters.
 - JWT_SECRET: a random secret of at least 32 characters; never a VITE_* variable.
 - JUDGE_USERNAME: `judge` by default.
-- JUDGE_PASSWORD: a random password of at least 16 characters, used only for seeding.
+- JUDGE_PASSWORD: a random password of at least 16 characters for seeding and cold-start demo login.
 - JWT_EXPIRE_MINUTES: 60 by default, configurable from 1 to 1440.
 
 Local Python loads `api/.env` relative to the module, with process environment
@@ -157,8 +159,75 @@ Included: health/readiness, OpenAPI docs, CORS allowlist, Docker/Caddy, SPA fall
 contract/fixtures/inventory, database schema, judge seed, JWT login and identity.
 H8–12 adds ingest, sync, acknowledgement, devices, and events. Set AGENT_API_KEY
 in api/.env for agent requests (X-API-Key header). Dashboard reads use Bearer JWT.
-See contract/README.md for retry and pagination semantics. Command creation,
-policy editing, audit endpoints, scoring, enforcement, and React UI are later work.
+H12–16 adds command creation, policy editing, and demo storage. See
+contract/README.md for retry and concurrency semantics. Audit endpoints, the
+React UI, and optional camera-frame relay remain later work; hardware enforcement
+stays in the agent.
+
+## Commands and policy
+
+GET/PUT `/api/policy` and POST `/api/actions` require the judge JWT. Defaults:
+learning_mode=true, protected_macs=[], and notify/block_wan/quarantine enabled.
+The empty protected list contains no invented hardware MACs: configure the real
+router/projector MACs before arming. The agent retains its local protected list.
+PUT replaces the whole policy; omitted fields receive safe defaults, not prior
+values. GET returns an ETag; pass it verbatim in If-Match to reject stale saves
+with 412. Identical saves do not increase the revision.
+
+POST `/api/actions` accepts `{action, mac}` (restore_all must omit mac). It returns
+202 with the queued Command, not proof of enforcement. Supply a UUID in
+Idempotency-Key and reuse it for a retry; a different payload with the same key
+returns 409. Replays return the original command even if already acknowledged or
+cancelled, without enqueueing it again. Without the header, each request creates
+a new command. Unknown targets return 404. Containment returns 409 in learning
+mode, for protected MACs, or when its ladder step is disabled. Restore and Restore
+all remain available in learning mode. Device status changes only through agent
+telemetry, not by clicking a dashboard action or writing an acknowledgement.
+
+Policy changes cancel pending containment commands that are no longer allowed;
+re-arming never revives them. Already-delivered commands cannot be recalled by
+the API. The agent must enforce its safeguards at execution. A late acknowledgement
+records the actual result even if the queue entry was cancelled meanwhile.
+Migration 002 permits the internal cancelled state; run init-db before deployment.
+
+## Demo fallback and badge
+
+`STORAGE_MODE` in api/.env supports `auto` (default), `postgres`, and `memory`.
+In memory mode DATABASE_URL is optional. Keep JWT_SECRET, AGENT_API_KEY, and
+JUDGE_PASSWORD configured; secrets are never defaulted to public demo credentials.
+Auto switches on a lost database connection. It does not mask schema/SQL errors,
+missing migrations, or query timeouts. A failed database write returns 503 on the
+triggering request because COMMIT may have succeeded; it is never blindly replayed
+into the other store. Subsequent requests use memory. Refresh storage status and
+retain the same idempotency key when retrying an action.
+
+Memory is a separate single-process SQLite database. It starts with no devices,
+events, or commands, learning mode ON, and the latest policy protection/ladder
+values this API process has observed (otherwise safe defaults). The agent's next
+upload repopulates device snapshots. Already-delivered historical events are not
+replayed automatically. Previously observed user hashes/identities are cached in
+RAM, including disabled status. A cold outage permits the explicitly configured
+judge credentials; PostgreSQL-only account changes cannot be checked offline.
+An old JWT may require re-login after a cold restart. This is demo availability,
+not a multi-user production identity fallback. Set STORAGE_MODE=postgres when
+authoritative database-backed identity checks must remain mandatory.
+
+GET `/api/storage` returns `{mode, demo_storage, persistent, badge, reason, recovery}`.
+All API responses expose X-Storage-Mode and X-Demo-Storage, including errors and
+304 sync responses. CORS exposes those headers and ETag. The placeholder page
+polls storage status, shows a text badge, and explains temporary-data loss;
+Person D should use the same endpoint/headers in the React dashboard.
+
+Fallback is latched until restart, even if PostgreSQL recovers. This avoids
+alternating between different command queues. Export needed demo data using the
+existing authenticated reads before restarting; memory data is discarded, not
+silently merged. Restart in auto/postgres to reconnect to Tiger Data. Inspect
+pending PostgreSQL commands before reconnecting the agent; the old persistent
+queue may still exist. Memory commands never migrate automatically. Limits are
+1000 devices, 10000 events, and 1000 commands; exceeding them returns 503 without
+silently dropping data. Run one API process/replica for auto or memory mode.
+For multiple workers use postgres mode. Tests inject database failure without
+stopping or altering the actual Tiger Data service.
 
 Run platform checks with `python -m pytest -q tests`; this avoids collecting the
 separate ML package before it has been installed. Enable SECURIOT_TEST_DATABASE=1

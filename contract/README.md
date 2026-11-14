@@ -35,9 +35,10 @@ prefixes. `/api/docs` describes only implemented routes, not promised features.
 | POST /commands/{id}/ack | Ack → 204 | X-API-Key; H8–12 |
 | GET /devices | → Device[] | Bearer JWT; H8–12 |
 | GET /events | → Event[] newest first | Bearer JWT; H8–12 |
-| POST /actions | Action → Command (202) | Bearer JWT; H12–16 |
-| GET /policy | → Policy | Bearer JWT; H12–16 |
-| PUT /policy | Policy → Policy | Bearer JWT; H12–16 |
+| POST /actions | Action → Command (202) | Bearer JWT; implemented H12–16 |
+| GET /policy | → Policy | Bearer JWT; implemented H12–16 |
+| PUT /policy | PolicyInput → Policy | Bearer JWT; implemented H12–16 |
+| GET /storage | → StorageStatus | Public; implemented H12–16 |
 | POST /audit/run | empty → {summary: string} | Bearer JWT; H16–20 |
 | GET /audit | → AuditEntry[] newest first | Bearer JWT; H16–20 |
 
@@ -74,3 +75,22 @@ unknown commands return 404. Acknowledgement records the agent's result without
 claiming cloud-side enforcement. Commands stop appearing in sync after ack.
 GET /devices returns all snapshots ordered by MAC. GET /events returns newest
 first with ?limit=100 (1–1000) and ?offset=0 pagination.
+
+H12–16: PUT /policy replaces the policy, defaulting omitted fields to learning
+mode ON, an empty protected list, and all ladder steps enabled. If-Match optionally
+uses the quoted ETag from GET /policy; stale writes return 412. Policy revision
+changes only when values change. Memory etags include a per-process generation
+so agents refetch policy after a storage switch/restart.
+
+Actions accept an optional UUID Idempotency-Key header. Reusing it with the same
+payload returns the same command without requeueing; changing the payload returns
+409. Unknown MACs return 404. Containment requires learning mode OFF, an enabled
+ladder step, and an unprotected target. Restore/restore_all remain available.
+Policy changes cancel unsafe pending containment; agents must still guard commands
+already delivered. Late acknowledgements record the actual execution result.
+
+Storage mode is additive metadata: X-Storage-Mode and X-Demo-Storage are returned
+on every response; GET /storage returns details. Existing array and Sync shapes
+are unchanged. Memory fallback is temporary, starts with learning ON, and stays
+active until an explicit process restart. See deploy/README.md for recovery and
+cold-start judge authentication behavior.

@@ -54,7 +54,7 @@ Agent → /ingest → DB → Scorer + Baseline → Gemini
 
 ## Try it
 
-For the implemented Person B H1–12 platform, login, and telemetry routes, follow [platform setup](deploy/README.md).
+For the implemented Person B H1–16 platform, login, telemetry, controls, and demo fallback, follow [platform setup](deploy/README.md).
 Shared schemas, demo fixtures, and hardware placeholders live in [contract](contract/README.md).
 The commands below describe later tracks and are not all implemented yet.
 

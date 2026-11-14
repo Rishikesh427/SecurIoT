@@ -1,6 +1,6 @@
 """Explicit environment precedence: process environment overrides api/.env."""
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import dotenv_values
@@ -22,13 +22,21 @@ class Settings:
     root_path: str = ""
     cors_origins: str = "http://localhost:5173"
     agent_api_key: str = ""
+    storage_mode: str = 'auto'
+    judge_username: str = 'judge'
+    judge_password: str = field(default='', repr=False)
 
     @classmethod
     def load(cls):
         env = environment()
         url = env.get("DATABASE_URL", "")
         secret = env.get("JWT_SECRET", "")
-        if not url or "URL_ENCODED_PASSWORD" in url:
+        mode = env.get('STORAGE_MODE', 'auto')
+        if mode not in ('auto', 'postgres', 'memory'):
+            raise ValueError('STORAGE_MODE must be auto, postgres, or memory')
+        if mode != 'postgres' and int(env.get('WEB_CONCURRENCY', '1')) != 1:
+            raise ValueError('In-memory fallback requires one API worker')
+        if mode != 'memory' and (not url or "URL_ENCODED_PASSWORD" in url):
             raise ValueError("Set DATABASE_URL in api/.env or the process environment")
         if not secret or len(secret) < 32 or secret.startswith("GENERATE_"):
             raise ValueError("JWT_SECRET must be a random value of at least 32 characters")
@@ -37,4 +45,5 @@ class Settings:
             raise ValueError("JWT_EXPIRE_MINUTES must be between 1 and 1440")
         return cls(url, secret, env.get("JWT_ISSUER", "securiot"),
                    env.get("JWT_AUDIENCE", "securiot-dashboard"), minutes,
-                   env.get("ROOT_PATH", ""), env.get("CORS_ORIGINS", "http://localhost:5173"), env.get("AGENT_API_KEY", ""))
+                   env.get("ROOT_PATH", ""), env.get("CORS_ORIGINS", "http://localhost:5173"), env.get("AGENT_API_KEY", ""),
+                   mode, env.get('JUDGE_USERNAME','judge'), env.get('JUDGE_PASSWORD',''))

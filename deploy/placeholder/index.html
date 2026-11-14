@@ -2,4 +2,21 @@
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SecurIoT platform</title>
 <main><h1>SecurIoT platform</h1><p>The web server is running. The dashboard bundle is not installed yet.</p>
-<p><a href="/api/healthz">API health</a> · <a href="/api/docs">API documentation</a></p></main></html>
+<section aria-label="Storage status">
+<p role="status" aria-live="polite" id="storage-status">Checking storage…</p>
+<p id="storage-detail"></p>
+<button type="button" id="storage-retry">Check storage again</button>
+<noscript><p>JavaScript is off. <a href="/api/storage">Check current storage status</a>.</p></noscript>
+</section>
+<p><a href="/api/healthz">API health</a> · <a href="/api/docs">API documentation</a></p>
+<style>
+  #storage-status { font-weight: bold; width: fit-content; max-width: 100%; padding: .4rem .7rem; border: 1px solid currentColor; border-radius: .3rem; }
+  #storage-status[data-mode="memory"] { color: #754300; background: #fff4d6; }
+  #storage-status[data-mode="postgres"] { color: #15416d; background: #edf4fb; }
+  #storage-detail { max-width: 65ch; }
+  #storage-retry { font: inherit; min-height: 44px; padding-inline: .75rem; cursor: pointer; }
+  #storage-retry:focus-visible { outline: 2px solid #15416d; outline-offset: 3px; }
+  #storage-retry:disabled { cursor: wait; }
+</style>
+<script src="/storage-status.js" defer></script>
+</main></html>
