@@ -1,24 +1,32 @@
 // Map view: the router in the middle, devices around it (Cytoscape.js).
 // Links animate while traffic flows, turn red and dashed when a device is cut off,
 // and new devices slide out from the router with a pulse.
+// Colors come from the theme's CSS variables when the graph is created; the parent
+// remounts this component (key={theme}) when the theme changes.
 import { useEffect, useRef } from "react";
 import cytoscape, { type Core, type NodeSingular } from "cytoscape";
 import { shortLabel, statusStyle } from "../lib/format";
 import type { DashDevice } from "../types";
 
-const INK = "#1d1d1f";
-const HAIRLINE = "#d2d2d7";
 const COLORS = { low: "#28a745", medium: "#c77700", high: "#e5332a" } as const;
 const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif';
+
+const css = (v: string) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+// Reassigned from the theme at the start of the create effect, before anything uses them.
+let INK = "#000";
+let HAIRLINE = "#6b6b70";
+let BG = "#fff";
 
 const svgUri = (svg: string) => `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 const riskBadge = (risk: number) =>
   svgUri(
     `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><text x="24" y="30" text-anchor="middle" font-family="-apple-system,Helvetica,Arial,sans-serif" font-size="16" font-weight="600" fill="${INK}">${risk}</text></svg>`,
   );
-const ROUTER_ICON = svgUri(
-  `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 32 32"><path d="M16 9l6 2.6v4.3c0 3.9-2.6 7-6 8.1-3.4-1.1-6-4.2-6-8.1v-4.3z" fill="#fff"/></svg>`,
-);
+const routerIcon = (fill: string) =>
+  svgUri(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 32 32"><path d="M16 9l6 2.6v4.3c0 3.9-2.6 7-6 8.1-3.4-1.1-6-4.2-6-8.1v-4.3z" fill="${fill}"/></svg>`,
+  );
+let ROUTER_ICON = routerIcon("#fff");
 
 function nodeData(d: DashDevice) {
   const cut = d.status === "quarantined" || d.status === "wan_blocked";
@@ -62,6 +70,11 @@ export default function NetworkMap({
 
   // Create the graph once.
   useEffect(() => {
+    INK = css("--color-ink");
+    BG = css("--color-white");
+    HAIRLINE = css("--color-ink-3");
+    ROUTER_ICON = routerIcon(BG);
+
     const el = box.current!;
     const cy = cytoscape({
       container: el,
@@ -82,7 +95,7 @@ export default function NetworkMap({
           style: {
             width: 48,
             height: 48,
-            "background-color": "#ffffff",
+            "background-color": BG,
             "background-image": "data(badge)",
             "background-fit": "contain",
             "border-width": 3,

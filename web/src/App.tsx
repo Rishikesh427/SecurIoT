@@ -8,6 +8,9 @@ import { ContainmentPanel } from "./components/ContainmentPanel";
 import { DeviceDetail } from "./components/DeviceDetail";
 import { DeviceList } from "./components/DeviceList";
 import { Login } from "./components/Login";
+import { HomeMap } from "./components/HomeMap";
+import { Heatmap } from "./components/Heatmap";
+import { SoundToggle, ThemeToggle, useTheme } from "./components/ThemeToggle";
 import { Logo } from "./components/Logo";
 import { StorageBadge } from "./components/StorageBadge";
 import { SettingsView } from "./components/SettingsView";
@@ -27,7 +30,7 @@ import { isIncident, summarize } from "./lib/incident";
 import { mockServer } from "./mock/mockServer";
 import type { ActionName, AuditEntry, DashDevice, Device, Policy, SecurEvent } from "./types";
 
-type Tab = "overview" | "activity" | "settings";
+type Tab = "map" | "heatmap" | "overview" | "activity" | "settings";
 
 export default function App() {
   const [authed, setAuthed] = useState(() => !!getToken());
@@ -43,7 +46,7 @@ export default function App() {
 }
 
 function Dashboard({ onLogout }: { onLogout: () => void }) {
-  const [tab, setTab] = useState<Tab>("overview");
+  const [tab, setTab] = useState<Tab>("map");
   const [rawDevices, setRawDevices] = useState<Device[]>([]);
   const [events, setEvents] = useState<SecurEvent[]>([]);
   const [policy, setPolicy] = useState<Policy | null>(null);
@@ -56,6 +59,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [muted, setMuted] = useState(false);
+  const [theme, toggleTheme] = useTheme();
   const [fixing, setFixing] = useState<Issue | null>(null);
   const [doneIds, setDoneIds] = useState<Set<string>>(loadDone);
   const [now, setNow] = useState(Date.now());
@@ -175,6 +179,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   }
 
   const traffic = useTraffic(rawDevices);
+  const rates = Object.fromEntries(Object.entries(traffic.byMac).map(([m, s]) => [m, s[s.length - 1] ?? 0]));
   const feedDevice = devices.find((d) => d.has_feed);
   const selectedDevice = devices.find((d) => d.mac === selected);
   const isolated = devices.filter((d) => isContained(d.status));
@@ -206,13 +211,16 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
       <header className="sticky top-0 z-30 border-b border-hairline bg-white/75 backdrop-blur-xl backdrop-saturate-150">
         <div className="mx-auto grid h-14 max-w-[1200px] grid-cols-[1fr_auto_1fr] items-center gap-4 px-6">
           <div className="flex items-center gap-2.5">
-            <Logo size={26} />
+            {/* LOGO SLOT: swap <Logo/> for <img src="/logo.svg" alt="" className="h-8 w-8" /> */}
+            <div className="grid h-8 w-8 place-items-center"><Logo size={28} /></div>
             <span className="text-[17px] font-semibold tracking-tight">CasaWarden</span>
           </div>
           <Segmented<Tab>
             value={tab}
             onChange={setTab}
             options={[
+              { value: "map", label: "Network map" },
+              { value: "heatmap", label: "Heatmap" },
               { value: "overview", label: "Overview" },
               { value: "activity", label: "Activity" },
               { value: "settings", label: "Settings" },
@@ -225,9 +233,8 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
               </Button>
             )}
             <StorageBadge />
-            <Button variant="plain" className="h-8 px-3" onClick={() => setMuted((m) => !m)}>
-              {muted ? "Sound off" : "Sound on"}
-            </Button>
+            <SoundToggle muted={muted} onToggle={() => { unlockAudio(); setMuted((m) => !m); }} />
+            <ThemeToggle theme={theme} onToggle={toggleTheme} />
             <Button variant="plain" className="h-8 px-3" onClick={onLogout}>
               Sign out
             </Button>
@@ -242,6 +249,18 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
       </header>
 
       <main className="mx-auto max-w-[1200px] px-6 pb-32 pt-10">
+        {tab === "map" && (
+          <div key="map" className="animate-rise-in">
+            <HomeMap devices={devices} rates={rates} attention={issues.length} theme={theme} onSelect={setSelected} />
+          </div>
+        )}
+
+        {tab === "heatmap" && (
+          <div key="heatmap" className="animate-rise-in">
+            <Heatmap devices={devices} events={events} now={now} />
+          </div>
+        )}
+
         {tab === "overview" && (
           <div key="overview" className="animate-rise-in space-y-10">
             <StatusBanner
@@ -325,7 +344,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
         )}
       </main>
 
-      {USE_MOCK && tab === "overview" && <DemoControls />}
+      {USE_MOCK && (tab === "map" || tab === "overview") && <DemoControls />}
 
       {fixing && (
         <FixSheet
