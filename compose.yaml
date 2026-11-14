@@ -21,7 +21,12 @@ services:
     security_opt:
       - no-new-privileges:true
   caddy:
-    image: caddy:2.10.0-alpine
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api}
+        VITE_MOCK_MODE: ${VITE_MOCK_MODE:-false}
     restart: unless-stopped
     depends_on:
       api:
@@ -34,7 +39,6 @@ services:
       - "443:443/udp"
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ${WEB_BUNDLE_PATH:-./deploy/placeholder}:/srv:ro
       - caddy_data:/data
       - caddy_config:/config
     security_opt:

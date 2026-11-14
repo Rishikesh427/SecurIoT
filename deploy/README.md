@@ -16,13 +16,13 @@ docker compose up --build -d
 curl --fail http://localhost/api/healthz
 ```
 
-Open http://localhost and http://localhost/api/docs. The initial page is an
-explicit placeholder, not Person D's dashboard. Once the Vite project exists,
-build it with VITE_API_URL=/api (VITE_API_BASE_URL is also provided for compatibility),
-set WEB_BUNDLE_PATH=./web/dist in the root .env, and recreate Caddy:
+Open http://localhost for the React/TypeScript dashboard and
+http://localhost/api/docs for the API. Caddy's multi-stage image builds `web/`
+and includes its production bundle. `WEB_BUNDLE_PATH` is no longer used.
+After frontend changes, rebuild Caddy:
 
 ```sh
-docker compose up -d --force-recreate caddy
+docker compose up --build -d caddy
 ```
 
 The API image copies only source, migrations, and requirements. It runs as a
