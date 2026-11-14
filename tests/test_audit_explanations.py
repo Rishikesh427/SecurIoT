@@ -134,7 +134,7 @@ def test_learning_mode_and_simulator_audit_do_not_claim_containment():
 def test_explanations_are_nonblocking_deduplicated_and_cached(monkeypatch):
     import api.explanations as module
     calls = []
-    def generated(event, device):
+    def generated(event, device, **kwargs):
         calls.append(event['id'])
         return {'plain_language':'Generated once.','recommended_next_step':'Review it.'}
     monkeypatch.setattr(module,'explain',generated)

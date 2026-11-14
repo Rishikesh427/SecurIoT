@@ -27,8 +27,8 @@ round trip. The PostgreSQL audit test in `tests/test_database.py` is opt-in with
 
 ## Local start
 
-From the repository root, copy `.env.example` to `.env` and `api/.env.example` to
-`api/.env` only if those files do not already exist. Configure the database and
+From the repository root, copy `api/.env.example` to `.env` only if you do not
+already have a configured `.env` or `api/.env`. Configure the database and
 judge settings described below, initialize the schema, then:
 
 ```sh
@@ -47,7 +47,7 @@ docker compose up --build -d caddy
 
 The API image copies only source, migrations, and requirements. It runs as a
 non-root user, has a process healthcheck, and does not publish port 8000. Compose
-injects `api/.env` into the API container only; no secrets enter the image or web
+injects root `.env` and optional `api/.env` into the API container only; no secrets enter the image or web
 bundle. `/api/healthz` is liveness; `/api/readyz` also checks database initialization.
 With STORAGE_MODE=auto, connection loss switches to explicit demo memory storage;
 readiness and every response identify the storage mode. STORAGE_MODE=postgres
@@ -60,7 +60,7 @@ settings (`sslmode=require` or stronger). This setup does not provision a paid
 database or assume a free trial lasts forever. The H4–8 task requires an existing
 PostgreSQL database with TimescaleDB; H12–16 adds an in-memory SQLite demo fallback.
 
-Required settings in ignored `api/.env`:
+Required settings in ignored `.env` (or `api/.env`):
 
 - DATABASE_URL: the PostgreSQL connection URI; URL-encode special password characters.
 - JWT_SECRET: a random secret of at least 32 characters; never a VITE_* variable.
@@ -68,9 +68,41 @@ Required settings in ignored `api/.env`:
 - JUDGE_PASSWORD: a random password of at least 16 characters for seeding and cold-start demo login.
 - JWT_EXPIRE_MINUTES: 60 by default, configurable from 1 to 1440.
 
-Local Python loads `api/.env` relative to the module, with process environment
-variables taking precedence. Compose uses `api/.env`; its explicit APP_ENV and
-ROOT_PATH override that file. CORS_ORIGINS belongs in `api/.env`, not root `.env`.
+Local Python loads root `.env`, then optional `api/.env`, then process environment
+variables in ascending precedence. Compose reads both files in the same order;
+its explicit APP_ENV and ROOT_PATH override file values. This requires Compose
+2.24.0+ for optional env files. CORS_ORIGINS can live in either env file.
+
+## Gemini advisor: three steps
+
+1. Set `GEMINI_API_KEY` and `GEMINI_MODEL` in your existing `.env` or `api/.env`.
+2. Run `docker compose up -d --build` from the repository root.
+3. Open the dashboard. Select a device for its assessment and chat, or choose
+   **Prioritize devices** on Overview for a suggested fix order.
+
+No database migration or agent change is needed for the advisor. The first device
+read shows pending advice; normal dashboard polling picks up the result. The AI
+can adjust the displayed score by at most ±10, while the rules score and its color
+band stay visible. Guessed types are labeled **AI guess**. Expected behavior is a
+hypothesis; it is not traffic observed by the system.
+
+Gemini explains and advises. It never decides what gets contained. Chat cannot
+execute actions or change scores. The agent's detectors and ladder retain control
+of automatic enforcement. Missing keys, provider failures, or invalid responses
+use rules-based advice with no score adjustment; detection continues offline.
+Mock dashboard mode disables Gemini controls; use the live API for advisor chat.
+
+Assessments use a bounded worker queue and a 15-minute fact cache; failed calls
+retry after 60 seconds. Chat and triage are authenticated and share a limit of
+20 requests/minute/user. Busy requests return a retryable error. Only minimal
+device facts and recent event kinds are sent; no raw event evidence or destination
+lists. Addresses embedded in device text or chat are redacted. Avoid entering
+other personal information into chat, whose question and recent history go to Gemini.
+
+Implementation uses Gemini's [structured JSON output](https://ai.google.dev/gemini-api/docs/structured-output)
+and validates it locally before using any adjustment. Run
+`PYTHONPATH=.:ml python -m pytest ml/tests tests -q`,
+`npm test --prefix web`, and `npm run build --prefix web` to check the integration.
 
 Initialize explicitly (the API does not run DDL at every startup):
 
@@ -228,10 +260,36 @@ POST `/api/audit/run` passes that history to Person C's
 GET `/api/events` always includes `explanation` and `explanation_status`.
 Without both GEMINI_API_KEY and GEMINI_MODEL, it returns Person C's template with
 status `template`. With both configured, the first read returns that template as
-`pending` while a bounded worker calls Person C's `explain(event, device)` away
-from the request path. Later reads return the event-ID-cached result as `ready`.
-Gemini failure also caches the template, so ingestion and dashboard reads remain
-available. Gemini never decides or performs containment.
+`pending` while a dedicated worker calls `explain(event, device, fallback=False)`
+away from the request path. Only a validated generated result becomes `ready`.
+Failures and saturation return `template`; the dashboard uses that template too.
+The pool has two workers and at most four running/queued jobs. A 512-entry LRU
+cache includes event identity, sanitized facts and recorded actions; generated
+results last one hour and failures retry after 60 seconds. The provider socket
+timeout is six seconds; results past the eight-second service deadline are
+discarded. Reads never wait for generation, even if a provider call stalls.
+
+Gemini receives allowlisted counters, ports, flags and device factors, not raw
+packets, raw evidence dictionaries, names, addresses, or DNS names. Generated
+observation text is limited to 40 words and the next step to 25 words. The API
+adds deterministic historical action wording: a WAN block is not quarantine,
+proposed actions are not applied actions, and simulations are not real containment.
+Neither templates nor the prompt claim a finding proves infection or that a
+restart repairs the device. Gemini never decides or performs containment.
+
+Run the isolated explanation check without a configured database:
+
+```sh
+PYTHONPATH=.:ml agent/.venv/bin/python scripts/check_explanations.py
+# Optional live call with synthetic facts, using your configured Gemini key:
+PYTHONPATH=.:ml agent/.venv/bin/python scripts/check_explanations.py --live
+```
+
+It checks authentication, template-first responses, output schema, action wording,
+cache stability, health and HTTP latency. The live version also requires the
+background result to become `ready`. It does not use your configured database or
+real inventory. The automated stalled-provider/concurrency test is in
+`tests/test_explanation_service.py`; run it with `pytest -q -s` to print timings.
 
 After pulling these changes, run `python -m api.manage init-db` before restarting
 the API, then rebuild Compose. The API requires schema migration version 3.

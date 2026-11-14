@@ -29,16 +29,21 @@ export function plainEvent(e: SecurEvent): string {
     case "scan_targets":
       return "Tried to connect to many devices";
     case "decoy_touch":
-      return "Tried to break into a decoy device";
+      return "Contacted a decoy service";
     case "new_domain":
       return "Contacted a website it hasn't used before";
     case "new_device":
-      return "Joined your network";
+      return "Was first recorded on your network";
   }
 }
 
 export function plainOutcome(e: SecurEvent): string | null {
-  if (e.actions_taken.length) return "SecurIoT cut it off from your network";
-  if (e.would_have.length) return "Not stopped, because protection is off";
+  if (e.source === "simulator" || e.evidence.simulated === true || e.evidence.enforcement === "mock") {
+    return "Simulation: no real containment is reported";
+  }
+  if (e.actions_taken.includes("restore") || e.actions_taken.includes("restore_all")) return "The agent reported a restore action at that time";
+  if (e.actions_taken.includes("quarantine")) return "The agent reported quarantine at that time";
+  if (e.actions_taken.includes("block_wan")) return "The agent reported an internet block; local access may remain";
+  if (e.would_have.length) return "Containment was proposed; no action was reported as applied";
   return null;
 }

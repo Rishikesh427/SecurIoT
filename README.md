@@ -44,12 +44,16 @@ Time to containment is on screen. No guesswork.
 | `/web` | React dashboard: device grid, live feed, explanations, one-click actions |
 
 - **Risk score 0-100:** known exploited CVEs (+30), end-of-life firmware (+20), exposed ports (+15), cloud-only (+10), default credentials (+25), live anomalies (up to +40).
-- **Reasoning:** Gemini classifies devices and writes the risk analysis, with a rules-only fallback so it never goes blind.
+- **Advice:** Gemini suggests types for unknown devices, explains risk, offers hardening steps,
+  ranks fixes, and answers per-device questions. Its displayed score adjustment is capped
+  at ±10; rules and detectors drive enforcement. Advice falls back to local rules offline.
 - **Platform:** local Docker Compose (FastAPI + Caddy), with an optional free Cloudflare Quick Tunnel for public HTTPS. Tiger Data tables and JWT judge login are implemented.
 
 ```
-Agent → /ingest → DB → Scorer + Baseline → Gemini
-      → Response engine → /commands → Agent enforces → Audit log → Dashboard
+Agent detectors → Local response ladder → Enforcement
+Agent telemetry → API /ingest → DB → Dashboard
+                                → Gemini advice → Dashboard (display adjustment only)
+Dashboard controls → API commands → Agent checks and enforces → Audit
 ```
 
 ## Try it
@@ -72,6 +76,10 @@ sudo python agent/agent.py --api $API_URL --key $AGENT_API_KEY
 ```
 
 Set `DATABASE_URL`, `GEMINI_API_KEY`, `JWT_SECRET`, and `AGENT_API_KEY` in `.env`.
+Set `GEMINI_MODEL` too. Rebuild with `docker compose up -d --build`, then open a
+device for AI advice and chat. **Prioritize devices** suggests what to fix first.
+See [advisor setup](deploy/README.md#gemini-advisor-three-steps) for configuration
+and fallback behavior. No schema migration is needed for this feature.
 
 ## The Mission
 

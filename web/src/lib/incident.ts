@@ -1,8 +1,8 @@
 // Derives incidents, containment timing and plain-language summaries from
-// contract events. There's no Gemini route in the contract yet, so summaries are
-// the template fallback the plan calls for.
+// contract events. API templates remain visible while Gemini works or is unavailable.
 import type { Device, SecurEvent } from "../types";
 import { shortLabel, toMs } from "./format";
+import { plainEvent, plainOutcome } from "./plain";
 
 const EVIDENCE_KINDS = new Set(["scan_arp", "scan_targets", "decoy_touch"]);
 
@@ -36,11 +36,12 @@ export interface Summary {
   source: "gemini" | "pending" | "local";
 }
 
-/** Gemini's text once the API has it; our own plain wording until then. */
+/** Use the API's explanation in every state; only ready text is attributed to Gemini. */
 function withGemini(e: SecurEvent, local: Omit<Summary, "source">): Summary {
-  if (e.explanation_status === "ready" && e.explanation) {
+  const source = e.explanation_status === "ready" ? "gemini" : e.explanation_status === "pending" ? "pending" : "local";
+  if (e.explanation) {
     const { plain_language, recommended_next_step } = e.explanation;
-    return { ...local, body: plain_language, next: recommended_next_step, spoken: plain_language, source: "gemini" };
+    return { ...local, body: plain_language, next: recommended_next_step, spoken: plain_language, source };
   }
   return { ...local, source: e.explanation_status === "pending" ? "pending" : "local" };
 }
@@ -55,21 +56,14 @@ export function summarize(incident: SecurEvent, device: Device | undefined): Sum
     });
   }
   const name = device ? shortLabel(device.label).toLowerCase() : "a device";
-  const what = incident.kind === "decoy_touch" ? "probing other devices on your network, including a decoy" : "scanning other devices on your network";
-  const contained = incident.actions_taken.length > 0;
-  return withGemini(incident, contained
-    ? {
-        headline: "Threat contained",
-        body: `Your ${name} started ${what}, which is typical of malware. It's been isolated from your network.`,
-        next: "Unplug and replug it to clear it from memory, then change its default password before restoring it.",
-        spoken: `Alert. Your ${name} started attacking other devices. SecurIoT has isolated it from your network.`,
-      }
-    : {
-        headline: "Threat detected",
-        body: `Your ${name} started ${what}, which is typical of malware. Learning mode is on, so SecurIoT only watched. With protection on, it would have been isolated.`,
-        next: "Turn on automatic protection so threats like this are isolated right away.",
-        spoken: `Warning. Your ${name} is attacking other devices. Learning mode is on, so it was not isolated.`,
-      });
+  const simulated = incident.source === "simulator" || incident.evidence.simulated === true || incident.evidence.enforcement === "mock";
+  const headline = simulated ? "Simulated observation" :
+    incident.actions_taken.some(a => a === "restore" || a === "restore_all") ? "Restore reported" :
+    incident.actions_taken.includes("quarantine") ? "Quarantine reported" :
+    incident.actions_taken.includes("block_wan") ? "Internet block reported" : "Activity to review";
+  const body = `Your ${name} ${plainEvent(incident).toLowerCase()}. ${plainOutcome(incident) ?? "No containment action was reported for this event"}.`;
+  return withGemini(incident, { headline, body, spoken: body,
+    next: "Review the recorded activity and verify the device's settings before changing its network access." });
 }
 
 export function deviceSummary(d: Device): { body: string; next: string } {
@@ -80,16 +74,7 @@ export function deviceSummary(d: Device): { body: string; next: string } {
   };
 }
 
-// Person C's old-camera cleanup wording, "isolated" throughout.
-const CAMERA_STEPS = [
-  "Unplug the camera and plug it back in. It's already isolated, so this safely clears malware that lives only in memory.",
-  "Change the default password right after it restarts.",
-  "Keep it blocked from the internet. It's end-of-life, so no fix is coming from the vendor.",
-  "Consider replacing it with a model that still gets security updates.",
-];
-
 export function cleanupSteps(d: Device): string[] {
-  if (d.type === "camera") return CAMERA_STEPS;
   const steps: string[] = [];
   if (d.default_creds) steps.push("Change the default password.");
   if (d.eol) steps.push("It no longer gets updates. Keep it blocked from the internet or replace it.");

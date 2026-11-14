@@ -102,7 +102,7 @@ export function DeviceList({
                     }`}
                   >
                     <span className={`rounded-full ${isFresh ? "animate-pulse-ring" : ""}`}>
-                      <RiskRing risk={d.risk} band={d.band} />
+                      <RiskRing risk={d.risk_adjusted ?? d.risk} band={d.band} />
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
@@ -113,6 +113,7 @@ export function DeviceList({
                       </div>
                       <div className="mt-0.5">
                         <Status status={d.status} />
+                        {d.ai?.status === "ready" && <p className="text-[11px] text-ink-3">Rules {d.risk} · AI {d.ai.delta >= 0 ? "+" : ""}{d.ai.delta} (max ±10)</p>}
                       </div>
                     </div>
                     <div className="hidden flex-col items-end gap-0.5 sm:flex">

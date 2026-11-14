@@ -104,7 +104,8 @@ def router(current_user):
 
     @routes.get('/devices', dependencies=[Depends(current_user)])
     def devices(request: Request):
-        return request.app.state.db.devices()
+        from api.advisor import recent_events
+        return request.app.state.advisor.decorate(request.app.state.db.devices(), recent_events(request.app.state.db))
 
     @routes.get('/events', dependencies=[Depends(current_user)])
     def events(request: Request, limit: int = 100, offset: int = 0):

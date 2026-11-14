@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, USE_MOCK, api, getToken, isMissing, setToken } from "./api/client";
 import { ActivityList } from "./components/ActivityList";
+import { AdvisorPriorities } from "./components/Advisor";
 import { ActivityView } from "./components/ActivityView";
 import { CameraCard } from "./components/CameraCard";
 import { ContainmentPanel } from "./components/ContainmentPanel";
@@ -279,6 +280,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
             <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_380px]">
               <div className="space-y-10">
                 <DeviceList devices={devices} traffic={traffic} onSelect={setSelected} />
+                <AdvisorPriorities devices={devices} onSelect={setSelected} />
                 <div>
                   <SectionTitle
                     action={

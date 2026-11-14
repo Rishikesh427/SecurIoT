@@ -89,8 +89,8 @@
       "type": "object", "additionalProperties": false,
       "required": ["plain_language", "recommended_next_step"],
       "properties": {
-        "plain_language": {"type": "string"},
-        "recommended_next_step": {"type": "string"}
+        "plain_language": {"type": "string", "minLength": 1, "maxLength": 1600},
+        "recommended_next_step": {"type": "string", "minLength": 1, "maxLength": 500}
       }
     },
     "EventView": {
@@ -170,6 +170,342 @@
     "AuditRunResponse": {
       "type": "object", "additionalProperties": false, "required": ["summary"],
       "properties": {"summary": {"type": "string", "minLength": 1}}
+    },
+    "DeviceAi": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "source",
+        "assessment",
+        "likely_type",
+        "expected_behavior",
+        "top_risk",
+        "next_step",
+        "confidence",
+        "delta",
+        "delta_reason",
+        "risk_adjusted"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "ready",
+            "pending",
+            "unavailable",
+            "off"
+          ]
+        },
+        "source": {
+          "enum": [
+            "gemini",
+            "rules"
+          ]
+        },
+        "assessment": {
+          "type": "string"
+        },
+        "likely_type": {
+          "type": "string"
+        },
+        "expected_behavior": {
+          "type": "string"
+        },
+        "top_risk": {
+          "type": "string"
+        },
+        "next_step": {
+          "type": "string"
+        },
+        "delta_reason": {
+          "type": "string"
+        },
+        "confidence": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "delta": {
+          "type": "integer",
+          "minimum": -10,
+          "maximum": 10
+        },
+        "risk_adjusted": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
+    },
+    "DeviceView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mac",
+        "ip",
+        "name",
+        "label",
+        "type",
+        "vendor",
+        "ports",
+        "bytes_in",
+        "bytes_out",
+        "dests",
+        "last_seen",
+        "simulated",
+        "has_feed",
+        "eol",
+        "default_creds",
+        "cloud_only",
+        "anomaly",
+        "risk",
+        "band",
+        "confidence",
+        "reasons",
+        "status",
+        "risk_adjusted",
+        "ai"
+      ],
+      "properties": {
+        "mac": {
+          "$ref": "#/$defs/Mac"
+        },
+        "ip": {
+          "type": "string",
+          "format": "ipv4"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "vendor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kev": {
+          "enum": [
+            "confirmed",
+            "possible",
+            "none",
+            "unknown"
+          ]
+        },
+        "ports": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          }
+        },
+        "bytes_in": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bytes_out": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "dests": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "last_seen": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "simulated": {
+          "type": "boolean"
+        },
+        "has_feed": {
+          "type": "boolean"
+        },
+        "eol": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "default_creds": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "cloud_only": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "anomaly": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 40
+        },
+        "risk": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "band": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "confidence": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "status": {
+          "enum": [
+            "normal",
+            "wan_blocked",
+            "quarantined",
+            "offline"
+          ]
+        },
+        "risk_adjusted": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "ai": {
+          "$ref": "#/$defs/DeviceAi"
+        }
+      }
+    },
+    "AdvisorTurn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "text"
+      ],
+      "properties": {
+        "role": {
+          "enum": [
+            "user",
+            "assistant"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 800
+        }
+      }
+    },
+    "AdvisorChat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mac",
+        "question"
+      ],
+      "properties": {
+        "mac": {
+          "$ref": "#/$defs/Mac"
+        },
+        "question": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "history": {
+          "type": "array",
+          "maxItems": 6,
+          "items": {
+            "$ref": "#/$defs/AdvisorTurn"
+          }
+        }
+      }
+    },
+    "AdvisorAnswer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "answer"
+      ],
+      "properties": {
+        "source": {
+          "enum": [
+            "gemini",
+            "rules"
+          ]
+        },
+        "answer": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "AdvisorTriage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "order"
+      ],
+      "properties": {
+        "source": {
+          "enum": [
+            "gemini",
+            "rules"
+          ]
+        },
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "mac",
+              "why"
+            ],
+            "properties": {
+              "mac": {
+                "$ref": "#/$defs/Mac"
+              },
+              "why": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

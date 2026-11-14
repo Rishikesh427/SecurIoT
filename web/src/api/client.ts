@@ -1,7 +1,7 @@
 // One client for both modes. Mock mode (in-browser, no backend) is the default
 // for `npm run dev`; production builds talk to the API unless VITE_USE_MOCK=true.
 import { mockServer } from "../mock/mockServer";
-import type { ActionRequest, AuditEntry, AuditRun, Command, Device, FeedMeta, Policy, SecurEvent, StorageStatus, TokenResponse } from "../types";
+import type { ActionRequest, AdvisorAnswer, AdvisorTriage, AdvisorTurn, AuditEntry, AuditRun, Command, Device, FeedMeta, Policy, SecurEvent, StorageStatus, TokenResponse } from "../types";
 
 const env = import.meta.env;
 
@@ -84,6 +84,9 @@ export const api = {
       : http<TokenResponse>("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
 
   devices: () => (USE_MOCK ? mockServer.getDevices() : http<Device[]>("/devices")),
+  advisorChat: (mac: string, question: string, history: AdvisorTurn[]) =>
+    http<AdvisorAnswer>("/advisor/chat", { method: "POST", body: JSON.stringify({ mac, question, history }) }),
+  advisorTriage: () => http<AdvisorTriage>("/advisor/triage"),
   events: () => (USE_MOCK ? mockServer.getEvents() : http<SecurEvent[]>("/events?limit=100")),
   policy: () => (USE_MOCK ? mockServer.getPolicy() : http<Policy>("/policy")),
   savePolicy: (p: Policy) => {

@@ -6,7 +6,28 @@ export type DeviceStatus = "normal" | "wan_blocked" | "quarantined" | "offline";
 export type ActionName = "block_wan" | "quarantine" | "restore" | "restore_all";
 export type EventKind = "scan_arp" | "scan_targets" | "decoy_touch" | "new_domain" | "new_device" | "volume";
 
+export interface DeviceAi {
+  status: "ready" | "pending" | "unavailable" | "off";
+  source: "gemini" | "rules";
+  assessment: string;
+  likely_type: string;
+  expected_behavior: string;
+  top_risk: string;
+  next_step: string;
+  confidence: Confidence;
+  delta: number;
+  delta_reason: string;
+  risk_adjusted: number;
+}
+
+export interface AdvisorTurn { role: "user" | "assistant"; text: string }
+export interface AdvisorAnswer { source: "gemini" | "rules"; answer: string }
+export interface AdvisorTriage { source: "gemini" | "rules"; order: { mac: string; why: string }[] }
+
 export interface Device {
+  // Dashboard-only fields (DeviceView). Never send these back to agent ingest.
+  risk_adjusted?: number;
+  ai?: DeviceAi;
   mac: string;
   ip: string;
   name: string; // short id, e.g. "camera"

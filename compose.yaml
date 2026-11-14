@@ -6,7 +6,10 @@ services:
       dockerfile: api/Dockerfile
     restart: unless-stopped
     env_file:
-      - ./api/.env
+      - path: ./.env
+        required: false
+      - path: ./api/.env
+        required: false
     environment:
       APP_ENV: production
       ROOT_PATH: /api

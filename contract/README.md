@@ -33,7 +33,9 @@ prefixes. `/api/docs` describes only implemented routes, not promised features.
 | POST /ingest | Ingest → {accepted_devices, accepted_events} counts | X-API-Key = AGENT_API_KEY; H8–12 |
 | GET /sync?etag= | → Sync, or 304 if unchanged and no pending commands | X-API-Key; H8–12 |
 | POST /commands/{id}/ack | Ack → 204 | X-API-Key; H8–12 |
-| GET /devices | → Device[] | Bearer JWT; H8–12 |
+| GET /devices | → DeviceView[] (rules + dashboard-only AI advice) | Bearer JWT |
+| POST /advisor/chat | AdvisorChat → AdvisorAnswer | Bearer JWT; 20 advisor requests/minute/user |
+| GET /advisor/triage | → AdvisorTriage | Bearer JWT; same advisor request limit |
 | GET /events | → EventView[] newest first | Bearer JWT; H8–12 plus H16–20 explanations |
 | POST /actions | Action → Command (202) | Bearer JWT; implemented H12–16 |
 | GET /policy | → Policy | Bearer JWT; implemented H12–16 |
@@ -45,8 +47,47 @@ prefixes. `/api/docs` describes only implemented routes, not promised features.
 Event views always include a template explanation. When Gemini is configured,
 the first read schedules Person C's synchronous `explain(event, device)` function
 off the request path and returns `explanation_status: pending`; later reads return
-the event-ID-cached result as `ready`. Missing credentials return `template` and
-never delay event ingestion or reads.
+the validated result as `ready`. Missing credentials, generation failures, queue
+saturation, or expired work return `template`. A failed template is never marked
+ready or attributed to Gemini. Reads never wait for generation.
+
+The explanation pool has two workers, at most four running/queued jobs, and a
+512-entry LRU cache keyed by event ID, sanitized facts, and recorded outcome.
+Successful results expire after one hour; failures retry after 60 seconds.
+The provider socket timeout is six seconds. Work has an eight-second service
+deadline, including queue time; late results are discarded. A stalled call stays
+inside the work bound until it exits, and subsequent reads show the template.
+
+Gemini sees selected numeric counters, ports, flags and device factors, never
+raw packets, raw evidence dictionaries, addresses, names, domains, or banners.
+Output is validated for exact fields, nonempty bounded text, word limits, and
+known unsupported action/remediation claims. The server appends action wording
+from recorded facts. Internet blocking, quarantine, proposed actions, restore,
+and simulation have separate wording. These describe reports at event time;
+they do not claim the device is currently contained, repaired, or infected.
+
+DeviceView extends the ingest Device with `risk_adjusted` and a strict `ai`
+assessment. `risk` and `band` remain authoritative rules values. The displayed
+score is `clamp(risk + ai.delta, 0, 100)`, with delta capped at ±10 and forced to
+zero for low confidence. Malformed responses use actionable rules advice with
+zero adjustment. `ai.status` is `off`, `pending`, `ready`, or `unavailable`;
+`ai.source` distinguishes Gemini from rules. `likely_type` is an explicitly
+labeled guess for unknown/generic devices and never changes Device.type.
+`expected_behavior` is a hypothesis, not measured traffic.
+
+Assessments run in a bounded background queue. Results are cached for 15 minutes
+by sanitized facts (including recent event kinds); failures retry after 60 seconds.
+The cache holds at most 256 entries. Chat and triage share the queue; saturation
+or a request deadline returns 503. Triage considers the 12 highest displayed
+scores, then appends remaining devices by score. Failures return the complete
+rules order. Requests use opaque IDs rather than device addresses at Gemini.
+
+The model receives allowlisted factors, ports, device name/vendor/model, and
+event kinds from up to 1,000 events in the last day. It receives no raw evidence,
+destination lists, MACs, or IPs; addresses embedded in text/questions/history are
+redacted. Strings are untrusted, and user-supplied chat history is not evidence.
+Chat has no tools and cannot change scores, snapshots, commands, or policy.
+AI fields are rejected by ingest and never enter agent sync or enforcement.
 
 Audit contains four `seeded-demo` rows plus command lifecycle rows. `/actions`
 records `requested`; agent acknowledgement changes the same row to `applied` or

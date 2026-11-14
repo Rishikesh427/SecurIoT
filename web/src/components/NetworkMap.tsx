@@ -26,7 +26,7 @@ function nodeData(d: DashDevice) {
     id: d.mac,
     label: `${shortLabel(d.label)}\n${statusStyle[d.status].label}`,
     color: cut ? COLORS.high : COLORS[d.band],
-    badge: riskBadge(d.risk),
+    badge: riskBadge(d.risk_adjusted ?? d.risk),
   };
 }
 

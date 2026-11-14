@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { DeviceControls } from "../DeviceControls";
+import { DeviceAdvisor } from "./Advisor";
 import { ChevronDown } from "lucide-react";
 import { bandLabel, bytes, clock, confidenceLabel, eventMeta, isContained, severityDot } from "../lib/format";
 import { plainEvent, plainReason } from "../lib/plain";
@@ -56,7 +57,7 @@ export function DeviceDetail({
 
         <div className="space-y-6 px-6 pb-10 pt-6">
           <div className="flex items-center gap-5">
-            <RiskRing risk={device.risk} band={device.band} size={76} />
+            <RiskRing risk={device.risk_adjusted ?? device.risk} band={device.band} size={76} />
             <div className="min-w-0">
               <h2 className="text-[24px] font-semibold leading-tight tracking-tight text-ink">{device.label}</h2>
               <p className="mt-1 text-[14px] text-ink-2">
@@ -91,7 +92,9 @@ export function DeviceDetail({
             </Card>
           </Section>
 
-          <Section title="Risk breakdown" aside={confidenceLabel[device.confidence]}>
+          <DeviceAdvisor key={device.mac} device={device} />
+
+          <Section title="Rules risk breakdown" aside={confidenceLabel[device.confidence]}>
             <Card className="divide-y divide-hairline">
               {reasons.length === 0 ? (
                 <p className="px-5 py-4 text-[14px] text-ink-3">No risk factors.</p>
