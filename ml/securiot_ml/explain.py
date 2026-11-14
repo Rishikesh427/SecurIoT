@@ -9,6 +9,9 @@ SYSTEM = ("You explain home-network security events to non-experts. Use only the
           '{"plain_language": str (<=40 words), "recommended_next_step": str (<=25 words)}')
 
 def template(ev, dev):
+    if ev.get("kind") == "volume":
+        return {"plain_language": "Traffic exceeded the device's calibrated baseline. This is advisory evidence; no automatic containment was requested.",
+                "recommended_next_step": "Review recent activity and baseline quality before taking action."}
     acts = ", ".join(ev.get("actions_taken", [])) or "none (learning mode)"
     name = dev.get("label") or dev.get("name") or "A device"
     return {"plain_language": f"{name} showed {ev.get('kind')} behavior "

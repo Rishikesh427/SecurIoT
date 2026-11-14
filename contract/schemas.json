@@ -61,6 +61,7 @@
         "bytes_in": {"type": "integer", "minimum": 0}, "bytes_out": {"type": "integer", "minimum": 0},
         "dests": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
         "last_seen": {"type": "string", "format": "date-time"},
+        "snapshot_at": {"type": ["string", "null"], "format": "date-time"},
         "simulated": {"type": "boolean"}, "has_feed": {"type": "boolean"},
         "eol": {"type": ["boolean", "null"]}, "default_creds": {"type": ["boolean", "null"]}, "cloud_only": {"type": ["boolean", "null"]},
         "anomaly": {"type": "number", "minimum": 0, "maximum": 40},
@@ -77,7 +78,7 @@
       "properties": {
         "id": {"type": "string", "format": "uuid"}, "mac": {"$ref": "#/$defs/Mac"},
         "ts": {"type": "string", "format": "date-time"},
-        "kind": {"enum": ["scan_arp", "scan_targets", "decoy_touch", "new_domain", "new_device"]},
+        "kind": {"enum": ["scan_arp", "scan_targets", "decoy_touch", "new_domain", "new_device", "volume"]},
         "evidence": {"type": "object"},
         "actions_taken": {"type": "array", "items": {"$ref": "#/$defs/ActionName"}},
         "would_have": {"type": "array", "items": {"$ref": "#/$defs/ActionName"}},
@@ -98,7 +99,7 @@
       "properties": {
         "id": {"type": "string", "format": "uuid"}, "mac": {"$ref": "#/$defs/Mac"},
         "ts": {"type": "string", "format": "date-time"},
-        "kind": {"enum": ["scan_arp", "scan_targets", "decoy_touch", "new_domain", "new_device"]},
+        "kind": {"enum": ["scan_arp", "scan_targets", "decoy_touch", "new_domain", "new_device", "volume"]},
         "evidence": {"type": "object"},
         "actions_taken": {"type": "array", "items": {"$ref": "#/$defs/ActionName"}},
         "would_have": {"type": "array", "items": {"$ref": "#/$defs/ActionName"}},

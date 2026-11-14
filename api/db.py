@@ -16,7 +16,7 @@ class Database:
 
     def ready(self):
         with self.connect() as conn:
-            return conn.execute("SELECT version FROM schema_migrations WHERE version = 3").fetchone() is not None
+            return conn.execute("SELECT version FROM schema_migrations WHERE version = 4").fetchone() is not None
 
     def audit(self):
         from api.audit_history import merge_history
@@ -54,7 +54,7 @@ class Database:
             for device in sorted(batch.devices, key=lambda d: d.mac):
                 data = device.model_dump(mode='json')
                 columns = list(data)
-                query = sql.SQL('INSERT INTO devices ({}) VALUES ({}) ON CONFLICT (mac) DO UPDATE SET {} WHERE EXCLUDED.last_seen > devices.last_seen RETURNING mac').format(
+                query = sql.SQL('INSERT INTO devices ({}) VALUES ({}) ON CONFLICT (mac) DO UPDATE SET {} WHERE COALESCE(EXCLUDED.snapshot_at, EXCLUDED.last_seen) > COALESCE(devices.snapshot_at, devices.last_seen) RETURNING mac').format(
                     sql.SQL(',').join(map(sql.Identifier, columns)),
                     sql.SQL(',').join(sql.Placeholder() for _ in columns),
                     sql.SQL(',').join(sql.SQL('{} = EXCLUDED.{}').format(sql.Identifier(c), sql.Identifier(c)) for c in columns if c != 'mac'))

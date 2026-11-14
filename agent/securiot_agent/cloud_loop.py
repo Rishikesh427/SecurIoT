@@ -54,6 +54,7 @@ class CloudLoop:
                 raise ValueError("Invalid pending ingest journal")
             self.validators["Ingest"].validate(pending["payload"])
         self.etag = ""  # Fetch full policy again after every process restart.
+        self.remote_protected = set()
         self.local_protected = {d.mac for d in agent.inventory.devices.values() if d.protected}
         # Never retry an action that might have executed before a process crash.
         for identifier, record in self.state["commands"].items():
@@ -75,7 +76,8 @@ class CloudLoop:
                 "detail": detail + (" (mock enforcement)" if self.agent.enforcer.simulated else " (live enforcement)")}
 
     def apply_policy(self, policy):
-        protected = self.local_protected | {normalize_mac(mac) for mac in policy["protected_macs"]}
+        self.remote_protected = {normalize_mac(mac) for mac in policy["protected_macs"]}
+        protected = self.local_protected | self.remote_protected
         for device in self.agent.inventory.devices.values():
             device.protected = device.mac in protected
         self.agent.policy.learning_mode = policy["learning_mode"] or not self.permit_arm

@@ -29,6 +29,7 @@ class Device(StrictModel):
     bytes_out: int = Field(ge=0)
     dests: list[str]
     last_seen: AwareDatetime
+    snapshot_at: AwareDatetime | None = None
     simulated: bool
     has_feed: bool
     eol: bool | None
@@ -53,7 +54,7 @@ class Event(StrictModel):
     id: UUID
     mac: Mac
     ts: AwareDatetime
-    kind: Literal['scan_arp', 'scan_targets', 'decoy_touch', 'new_domain', 'new_device']
+    kind: Literal['scan_arp', 'scan_targets', 'decoy_touch', 'new_domain', 'new_device', 'volume']
     evidence: dict
     actions_taken: list[Action]
     would_have: list[Action]

@@ -39,7 +39,7 @@ def load_devices(path: Path, *, simulated: bool = True) -> Inventory:
             for key in ("eol", "default_creds", "cloud_only"):
                 if record.get(key) is not None and type(record[key]) is not bool:
                     raise ValueError(f"{key} must be boolean or null")
-            for key in ("vendor", "model"):
+            for key in ("vendor", "model", "type", "firmware"):
                 if record.get(key) is not None and not isinstance(record[key], str):
                     raise ValueError(f"{key} must be a string or null")
             ports = record.get("ports", [])
@@ -51,7 +51,7 @@ def load_devices(path: Path, *, simulated: bool = True) -> Inventory:
             devices.append(Device(record["mac"], record["ip"], name,
                                   protected=record.get("protected", False), simulated=record.get("simulated", True) is True,
                                   risk_facts={key: record[key] for key in (
-                                      "ports", "admin_ports", "vendor", "model", "eol", "default_creds", "cloud_only"
+                                      "ports", "admin_ports", "vendor", "model", "type", "firmware", "eol", "default_creds", "cloud_only"
                                   ) if key in record}))
             devices[-1].risk_facts["_simulated_facts"] = record.get("simulated") is True
             if "persona" in record:

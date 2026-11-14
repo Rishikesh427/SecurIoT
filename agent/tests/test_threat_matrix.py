@@ -135,17 +135,14 @@ def test_unimplemented_attack_families_are_not_claimed_as_detected(kind):
     assert not run(packets).events  # Explicit unsupported cases, not an accuracy success claim.
 
 
-@pytest.mark.parametrize("nbytes,expected", [(1000, False), (1399, False), (1400, True), (1800, True)])
-def test_volume_signal_feature_level_only(nbytes, expected):
+@pytest.mark.parametrize("nbytes", [1000, 1399, 1400, 1800])
+def test_individual_packet_sizes_do_not_trigger_volume_alerts(nbytes):
+    # Completed-duration tests live in test_routine.py. A packet is not a window.
     clock = DemoClock(1000)
     adapter = MLAdapter(clock)
     adapter.detector.baselines = {MAC.upper(): {"mean": 1000, "std": 100}}
     clock.advance(31)
-    result = adapter.observe(Observation(MAC, bytes_out=nbytes))
-    assert bool(result) == expected
-    if result:
-        assert result.kind == "volume"
-        assert not result.containment_allowed
+    assert adapter.observe(Observation(MAC, bytes_out=nbytes)) is None
 
 
 def test_decoy_signal_can_override_ambiguous_arp_quantity():

@@ -52,6 +52,7 @@ export const statusStyle: Record<DeviceStatus, { label: string; dot: string; tex
 export const isContained = (s: DeviceStatus) => s === "quarantined" || s === "wan_blocked";
 
 export const eventMeta: Record<EventKind, { label: string; severity: "info" | "warn" | "bad" }> = {
+  volume: { label: "Unusual traffic volume", severity: "warn" },
   scan_arp: { label: "Network sweep detected", severity: "warn" },
   scan_targets: { label: "Port scan detected", severity: "warn" },
   decoy_touch: { label: "Decoy accessed", severity: "bad" },

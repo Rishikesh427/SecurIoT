@@ -35,7 +35,7 @@ class MLAdapter:
             arp=observation.packet_arp_requests,
             pairs=observation.packet_syn_targets,
             decoy_hits=observation.packet_decoy_hits,
-            nbytes=observation.bytes_in + observation.bytes_out,
+            nbytes=0,  # Fixed-duration volume detection is owned by routine.py.
         )
         if model_evidence is not None and (result is None or result["kind"] not in {"scan_arp", "decoy_touch"}):
             score = model_evidence["ml_score"]
