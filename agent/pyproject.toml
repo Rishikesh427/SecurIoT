@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "securiot-agent"
+version = "0.1.0"
+description = "SecurIoT's local agent, starting with an explicit simulation mode"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+replay = ["scapy>=2.6,<3"]
+
+[project.scripts]
+securiot-agent = "securiot_agent.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["securiot_agent*"]
