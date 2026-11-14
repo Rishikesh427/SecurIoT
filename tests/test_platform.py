@@ -49,9 +49,9 @@ def test_action_target_rules():
 
 def test_api_health_docs_and_unimplemented_routes():
     with TestClient(app, root_path="/api") as client:
-        assert client.get("/healthz").json()["stage"] == "platform-h4-8"
+        assert client.get("/healthz").json()["stage"] == "platform-h8-12"
         assert "/api/openapi.json" in client.get("/docs").text
-        assert client.post("/ingest", json=FIXTURES).status_code == 404
+        assert client.post("/ingest", json=FIXTURES).status_code == 503
         assert client.get("/openapi.json").status_code == 200
 
 
