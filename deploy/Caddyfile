@@ -1,0 +1,16 @@
+{$SITE_ADDRESS:http://localhost} {
+    encode zstd gzip
+    redir /api /api/ 308
+    handle_path /api/* {
+        reverse_proxy api:8000
+    }
+    @backend path /healthz /ingest /sync /commands/* /devices /devices/* /events /actions /policy /audit /audit/*
+    handle @backend {
+        reverse_proxy api:8000
+    }
+    handle {
+        root * /srv
+        try_files {path} /index.html
+        file_server
+    }
+}

@@ -1,0 +1,29 @@
+# Fixture MACs only! Replace with observed permanent MACs before pinning DHCP.
+# Do not apply persona fields to the phone or projector.
+version: 1
+placeholder_macs: true
+devices:
+  - name: camera
+    label: Living room camera (simulated)
+    mac: "02:00:00:00:00:20"
+    ip: 10.42.0.20
+    protected: false
+    simulated: true
+    persona:
+      vendor: Edimax
+      model: IC-7100
+      eol: true
+      kev: possible
+    # ports/default_creds must come from the real scan, never this persona.
+  - name: phone
+    label: Attacker phone
+    mac: "02:00:00:00:00:30"
+    ip: 10.42.0.30
+    protected: false
+    simulated: false
+  - name: projector
+    label: Healthy projector
+    mac: "02:00:00:00:00:40"
+    ip: 10.42.0.40
+    protected: true
+    simulated: false
