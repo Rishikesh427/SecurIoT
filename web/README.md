@@ -1,53 +1,81 @@
-# React dashboard
+# SecurIoT dashboard (`/web`)
 
-React and TypeScript implement login, inventory, event explanations, restore
-requests, audit history/digest, and storage status.
-Tokens stay in memory; reloading signs out. No agent key is shipped to the browser.
+React + Vite + Tailwind. Person D's frontend from the v3.2 plan.
 
-From the repository root, run `docker compose up --build -d` and open
-http://localhost. Caddy builds and serves the React bundle. `/dashboard.html`
-also resolves to the app through the existing SPA fallback.
-
-For frontend development, run `npm.cmd ci --prefix web`, then
-`npm.cmd run dev --prefix web`. Open the URL Vite prints; its `/api` proxy
-uses the Docker stack at http://localhost.
-
-Run `npm.cmd run build --prefix web` for TypeScript checks and the production
-bundle, and `npm.cmd test --prefix web` for API-client tests.
-
-Restore controls queue commands; the UI keeps their status as requested until
-the agent acknowledges them. The digest button reports a clear unavailable state
-until Person C provides `ml.securiot_ml.digest.digest(history)`.
-
-## Offline fixture demo
-
-In PowerShell, from the repository root:
-
-```powershell
-$env:VITE_MOCK_MODE = 'true'
-npm.cmd run dev --prefix web
+```bash
+cd web
+npm install
+npm run dev        # http://localhost:5173
 ```
 
-Open the Vite URL and sign in with `demo` / `demo`. This is an explicitly
-labelled, read-only fixture demo using `contract/fixtures.json`. It makes no
-API requests and does not need Docker, Tiger Data, or hardware. It is separate
-from the backend's automatic in-memory database fallback.
+`npm run dev` uses **mock data** by default, so it needs no agent, API or Pi. Any username and password logs in. Production builds (`npm run build`) use the real API.
 
-To return to the real API, stop Vite with Ctrl+C, then:
+## Demo in mock mode
 
-```powershell
-$env:VITE_MOCK_MODE = 'false'
-$env:VITE_API_URL = '/api'
-npm.cmd run dev --prefix web
+1. Turn on **Automatic protection** (the switch at the top right of Overview).
+2. In the **Demo** pill at the bottom left, click **Simulate QR attack**.
+3. About 2 s later the camera "attacks": network sweep, decoy accessed, port scan. About 1.3 s after that it's isolated: the camera tile switches to "Camera isolated", an alert tone plays and the alert is read aloud, and the containment timer shows the seconds.
+4. Click **View cleanup steps** (or the camera row) for the summary, risk breakdown and steps, then **Restore**. The camera rejoins after about 12 s.
+5. **Cloud outage** shows the offline banner. The **Activity** tab has the audit log (with Undo), **Run audit**, and the full event list.
+
+With protection off (learning mode), the same attack is reported as "would have" and nothing is isolated.
+
+**Device joins** adds a guest laptop so you can see a new device slide in. Switch **Devices** to **Map** for the network view (router in the middle, Cytoscape.js; loaded only when opened).
+
+## How the Overview is organized
+
+1. **Am I okay?** One status banner: green "You're protected", amber "N things need attention", red when something is under attack or cut off.
+2. **What's wrong?** "What needs attention", most urgent first. Each item has a severity (Critical / High / Medium / Low, each with its own color, icon and label) and a **Fix** button.
+3. **What do I do?** Fix opens plain steps, one main action (turn on protection, isolate, restore) and "I've done this". Technical terms only appear under "Technical details".
+4. Activity shows a plain summary per event; click one to see its raw log entry.
+
+## Real backend
+
+**Local, against the API on port 8000:** start the API from the repo root (`uvicorn api.main:app --port 8000`), then run the dashboard with mock mode off:
+
+```bash
+VITE_USE_MOCK=false npm run dev
 ```
 
-`VITE_API_URL` includes the API prefix, for example `https://your-host/api`.
-Trailing slashes are normalized. `/api` uses the Vite proxy in development and
-Caddy in production. A different origin must be allowed by API `CORS_ORIGINS`.
-Both settings are public build-time configuration; never put secrets in VITE variables.
-For Docker set these variables in the root `.env` and rebuild Caddy with
-`docker compose up --build -d caddy`. For Vite, `web/.env.local` is also supported.
+The dev server proxies `/api/*` to `http://localhost:8000` with the prefix stripped, the same way Caddy does, so there's no CORS setup. Log in with the judge account.
 
-Tailwind's Vite plugin generates utility styles; existing CSS preserves the
-dashboard layout. Tailwind utilities style the mock-mode notices. Preflight is
-omitted to avoid resetting the existing table and form styling.
+**Docker:** `compose.yaml` builds this dashboard with `web/Dockerfile` and serves it with Caddy, so from the repo root:
+
+```bash
+docker compose up --build -d     # dashboard at http://localhost, API at /api
+```
+
+Build settings come from the root `.env` (`VITE_API_URL`, default `/api`; `VITE_MOCK_MODE`, default `false`). After changing the dashboard, rebuild with `docker compose up --build -d caddy`.
+
+**Settings** (`web/.env`, all optional):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `VITE_API_URL` (or `VITE_API_BASE_URL`) | `/api` | API base |
+| `VITE_USE_MOCK` or `VITE_MOCK_MODE` | `true` in dev, `false` in builds | Force mock on or off |
+| `VITE_FEED_URL` | unset | Agent's local API (e.g. `http://10.42.0.1:8787`) for the live camera feed. Unset, the camera tile follows the device status |
+
+Never put keys in `web/.env`. Everything there ends up in the public bundle.
+
+The header shows where the API keeps data (`GET /storage`): **Tiger Data**, or **Demo storage** when the API fell back to temporary in-memory storage.
+
+**Routes not built yet:** the dashboard checks once per load. Without `/policy`, the protection switch and Settings say "not available yet"; without `/actions`, Isolate/Restore are hidden; without `/audit` and `/audit/run`, the audit log and digest say so. Everything else (devices, activity, risk, containment) works from `/devices` and `/events`. A 401 signs you out.
+
+Mock mode reads `../contract/fixtures.json` directly, so the mock data always matches the contract.
+
+## Where things are
+
+| Path | What |
+|---|---|
+| `src/types.ts` | Types mirroring `contract/schemas.json` |
+| `src/mock/` | Contract fixtures plus the in-memory mock API with the scripted QR attack |
+| `src/api/client.ts` | Switches between mock and real API |
+| `src/lib/incident.ts` | Incidents, containment timing, template summaries, cleanup steps |
+| `src/components/` | Device list, activity, camera status tile, containment timer + before/after, device sheet, settings, audit |
+
+## Open questions for the contract
+
+- **Explanations:** there's no Gemini route yet, so summaries are templates (the plan's fallback). If the API adds e.g. `GET /events/{id}/explanation`, wire it into `lib/incident.ts`.
+- **Containment timer:** the contract has no enforcement timestamp. The dashboard reads optional `evidence.first_evidence_at` and `evidence.enforced_at` on the event that carries `actions_taken`, and otherwise estimates from event timestamps. It would help if the agent sent both.
+- **Detection thresholds** and **Ignore** aren't in the contract's Policy/Action, so the dashboard doesn't offer them.
+- **Isolate** sends `quarantine`; the agent applies the block + quarantine bundle.

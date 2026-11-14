@@ -1,114 +1,409 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { createApiClient, transport } from './api';
-import { mockMode } from './config';
-import type { AuditEntry, Device, NetworkEvent, StorageStatus, User } from './types';
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ApiError, USE_MOCK, api, getToken, isMissing, setToken } from "./api/client";
+import { ActivityList } from "./components/ActivityList";
+import { ActivityView } from "./components/ActivityView";
+import { CameraCard } from "./components/CameraCard";
+import { ContainmentPanel } from "./components/ContainmentPanel";
+import { DeviceDetail } from "./components/DeviceDetail";
+import { DeviceList } from "./components/DeviceList";
+import { Login } from "./components/Login";
+import { Logo } from "./components/Logo";
+import { StorageBadge } from "./components/StorageBadge";
+import { SettingsView } from "./components/SettingsView";
+import { AttentionList } from "./components/AttentionList";
+import { FixSheet } from "./components/FixSheet";
+import { Sparkline } from "./components/Sparkline";
+import { StatusBanner } from "./components/StatusBanner";
+import { Button, Card, SectionTitle, Segmented } from "./components/ui";
+import { useCountUp } from "./hooks/useCountUp";
+import { usePoll } from "./hooks/usePoll";
+import { rate, useTraffic } from "./hooks/useTraffic";
+import { deriveIssues, type Issue } from "./lib/issues";
+import { severityMeta } from "./lib/severity";
+import { playAlertTone, speak, unlockAudio } from "./lib/alert";
+import { isContained, shortLabel } from "./lib/format";
+import { isIncident, summarize } from "./lib/incident";
+import { mockServer } from "./mock/mockServer";
+import type { ActionName, DashDevice, Device, Policy, SecurEvent } from "./types";
 
-const labels: Record<string, string> = { scan_arp: 'ARP scan detected', scan_targets: 'Multiple targets scanned', decoy_touch: 'Decoy contacted', new_domain: 'New domain contacted', new_device: 'Device discovered', block_wan: 'Block internet access', quarantine: 'Quarantine', restore: 'Restore access', restore_all: 'Restore all devices', normal: 'Normal', wan_blocked: 'Internet blocked', quarantined: 'Quarantined', offline: 'Offline' };
-const label = (value: string) => labels[value] ?? value;
-const message = (error: unknown) => error instanceof Error ? error.message : 'Request failed. Please try again.';
-function date(value: string) { const d = new Date(value); return Number.isNaN(d.valueOf()) ? 'Unknown' : d.toLocaleString(); }
-
-function StorageBadge() {
-  if (mockMode) return <aside className="rounded-md bg-amber-50 p-4 text-amber-950"><strong>Fixture mock mode</strong><p>No backend connection. Reports are static fixtures; no actions are sent to devices.</p></aside>;
-  const [mode, setMode] = useState<string>('');
-  const [busy, setBusy] = useState(false);
-  const pending = useRef(false);
-  const alive = useRef(true);
-  async function refresh() {
-    if (pending.current) return;
-    pending.current = true; setBusy(true);
-    try {
-      const response = await transport('/storage', { cache: 'no-store', signal: AbortSignal.timeout(10000) });
-      if (!response.ok) throw new Error();
-      const result: StorageStatus = await response.json();
-      if (!['memory', 'postgres'].includes(result.mode)) throw new Error();
-      if (alive.current) setMode(result.mode);
-    } catch { if (alive.current) setMode('error'); }
-    finally { pending.current = false; if (alive.current) setBusy(false); }
-  }
-  useEffect(() => { alive.current = true; void refresh(); const timer = setInterval(() => { if (!document.hidden) void refresh(); }, 10000); return () => { alive.current = false; clearInterval(timer); }; }, []);
-  return <aside><p id="storage-status" role="status" data-mode={mode}>{mode === 'memory' ? 'Demo storage' : mode === 'postgres' ? 'Tiger Data connected' : mode === 'error' ? 'Storage status unavailable' : 'Checking storage…'}</p><p>{mode === 'memory' ? 'Changes are temporary and disappear when the API restarts.' : mode === 'postgres' ? 'Device reports and commands are stored in the database.' : mode === 'error' ? 'Check that the API is running, then try again.' : ''}</p><button disabled={busy} onClick={() => void refresh()}>Check storage</button></aside>;
-}
-
-function Inventory({ devices, restore, restoring }: { devices: Device[]; restore:(mac:string)=>void; restoring:string }) {
-  const [query, setQuery] = useState('');
-  const filtered = devices.filter(d => [d.label, d.name, d.ip, d.mac].some(v => v.toLowerCase().includes(query.trim().toLowerCase())));
-  return <><label>Find a device<input type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="Name, IP or MAC" /></label>{!filtered.length ? <p>{devices.length ? 'No devices match your search.' : 'No devices reported yet. Connect the agent to upload inventory.'}</p> : <div className="scroll" tabIndex={0} role="region" aria-label="Device inventory"><table><caption>Reported state · times shown in your local timezone</caption><thead><tr>{['Device', 'Address', 'Risk', 'Status', 'Last seen', 'Action'].map(h => <th scope="col" key={h}>{h}</th>)}</tr></thead><tbody>{filtered.map(d => <tr key={d.mac}><td><strong>{d.label || d.name}</strong><small>{d.type}</small>{d.simulated && <span className="badge">Simulated</span>}</td><td>{d.ip}<small>{d.mac}</small></td><td><span className={`badge ${d.band}`}>{d.risk}/100 · {d.band}</span><small>{d.confidence} confidence</small>{d.reasons.length > 0 && <details><summary>Risk factors</summary><ul>{d.reasons.map((reason, i) => <li key={i}>{reason}</li>)}</ul></details>}</td><td>{label(d.status)}</td><td>{date(d.last_seen)}</td><td>{['wan_blocked','quarantined'].includes(d.status) ? <button disabled={mockMode || restoring === d.mac} onClick={() => restore(d.mac)}>{restoring === d.mac ? 'Queueing…' : 'Restore access'}</button> : <span className="muted">No restore needed</span>}</td></tr>)}</tbody></table></div>}</>;
-}
-
-function EventFeed({ events, devices }: { events: NetworkEvent[]; devices: Device[] }) {
-  if (!events.length) return <p>No events reported yet. New activity will appear automatically.</p>;
-  return <ol id="feed">{events.map(event => { const device = devices.find(d => d.mac === event.mac); return <li key={event.id}><h3>{label(event.kind)}</h3><small><time dateTime={event.ts}>{date(event.ts)}</time></small><p>{device?.label || device?.name || 'Device'} · {event.mac}</p><span className="badge">{event.source === 'simulator' ? 'Simulated event' : 'Agent report'}</span><p>{event.explanation?.plain_language}</p>{event.explanation?.recommended_next_step && <p><strong>Next step:</strong> {event.explanation.recommended_next_step}</p>}<small>{event.explanation_status === 'pending' ? 'Generating an optional explanation; template shown for now.' : event.explanation_status === 'template' ? 'Template explanation' : 'Generated explanation'}</small><p>Reported actions: {event.actions_taken.map(label).join(', ') || 'None'}</p>{event.would_have.length > 0 && <p>Would have: {event.would_have.map(label).join(', ')}. These actions were not applied.</p>}<details><summary>View evidence</summary><pre>{JSON.stringify(event.evidence, null, 2)}</pre><small>Event ID: {event.id}</small></details></li>; })}</ol>;
-}
-
-function AuditLog({ rows, digest, runDigest, busy }: {rows:AuditEntry[];digest:string;runDigest:()=>void;busy:boolean}) {
-  return <section id="audit"><div className="heading"><h2>Audit log</h2><button disabled={busy || mockMode} onClick={runDigest}>{busy?'Generating…':'Generate digest'}</button></div><p>Requests become applied only after the agent acknowledges them. Seeded demo history is labelled.</p>{digest && <p role="status"><strong>Digest:</strong> {digest}</p>}{!rows.length ? <p>No audit entries yet.</p> : <div className="scroll" tabIndex={0} role="region" aria-label="Audit history"><table><thead><tr>{['Time','Actor','Action','Device','Outcome'].map(h=><th scope="col" key={h}>{h}</th>)}</tr></thead><tbody>{rows.map(row=><tr key={row.id}><td>{date(row.ts)}</td><td>{row.actor}{row.actor==='seeded-demo'&&<small>Seeded history</small>}</td><td>{label(row.action)}</td><td>{row.mac||'All / not applicable'}</td><td><span className={`badge ${row.outcome==='failed'?'high':row.outcome==='applied'?'low':'medium'}`}>{label(row.outcome)}</span></td></tr>)}</tbody></table></div>}</section>;
-}
-
-function Reports({ client }: { client: ReturnType<typeof createApiClient> }) {
-  const [devices, setDevices] = useState<Device[] | null>(null);
-  const [events, setEvents] = useState<NetworkEvent[] | null>(null);
-  const [audit, setAudit] = useState<AuditEntry[] | null>(null);
-  const [errors, setErrors] = useState(['', '', '']);
-  const [updated, setUpdated] = useState('Loading reports…');
-  const [busy, setBusy] = useState(false);
-  const [restoring, setRestoring] = useState('');
-  const [actionNotice, setActionNotice] = useState('');
-  const [digest, setDigest] = useState('');
-  const [digestBusy, setDigestBusy] = useState(false);
-  const pending = useRef(false), alive = useRef(true);
-  async function refresh() {
-    if (pending.current) return;
-    pending.current = true; setBusy(true);
-    try {
-      const results = await Promise.allSettled([client.request<Device[]>('/devices'), client.request<NetworkEvent[]>('/events?limit=100'), client.request<AuditEntry[]>('/audit')]);
-      if (!alive.current) return;
-      const nextErrors = results.map(result => result.status === 'rejected' ? message(result.reason) : Array.isArray(result.value) ? '' : 'Invalid server response.');
-      if (!nextErrors[0] && results[0].status === 'fulfilled') setDevices(results[0].value as Device[]);
-      if (!nextErrors[1] && results[1].status === 'fulfilled') setEvents(results[1].value as NetworkEvent[]);
-      if (!nextErrors[2] && results[2].status === 'fulfilled') setAudit(results[2].value as AuditEntry[]);
-      setErrors(nextErrors);
-      setUpdated(nextErrors.some(Boolean) ? 'Some reports could not refresh. Previously loaded reports may be out of date.' : `Updated ${new Date().toLocaleTimeString()}. Checks every 10 seconds while this tab is visible.`);
-    } finally { pending.current = false; if (alive.current) setBusy(false); }
-  }
-  async function restore(mac?: string) {
-    if (mockMode || restoring) return;
-    setRestoring(mac || 'all'); setActionNotice('');
-    try {
-      await client.request('/actions',{method:'POST',headers:{'Idempotency-Key':crypto.randomUUID()},body:JSON.stringify(mac?{action:'restore',mac}:{action:'restore_all'})});
-      setActionNotice(`${mac?'Restore':'Restore all'} requested. Status changes only after the agent applies and acknowledges the command.`);
-      await refresh();
-    } catch (error) { setActionNotice(message(error)); }
-    finally { setRestoring(''); }
-  }
-  async function runDigest() {
-    setDigestBusy(true); setDigest('');
-    try { const result=await client.request<{summary:string}>('/audit/run',{method:'POST'}); setDigest(result.summary); }
-    catch (error) { setDigest(message(error)); }
-    finally { setDigestBusy(false); }
-  }
-  useEffect(() => {
-    alive.current = true; void refresh();
-    const visible = () => { if (!document.hidden) void refresh(); };
-    const timer = setInterval(visible, 10000); document.addEventListener('visibilitychange', visible);
-    return () => { alive.current = false; clearInterval(timer); document.removeEventListener('visibilitychange', visible); };
-  }, []);
-  return <><div className="heading"><h1>Network overview</h1><div className="actions"><button disabled={mockMode || !!restoring} onClick={() => void restore()}>{restoring==='all'?'Queueing…':'Restore all devices'}</button><button disabled={busy} onClick={() => void refresh()}>Refresh reports</button></div></div><p role="status">{actionNotice || updated}</p><nav aria-label="Dashboard sections"><a href="#devices">Devices</a><a href="#events">Events</a><a href="#audit">Audit</a></nav><section id="devices"><h2>Devices</h2>{errors[0] && <p role="alert">{errors[0]} Use Refresh reports to retry.</p>}{devices ? <Inventory devices={devices} restore={mac=>void restore(mac)} restoring={restoring} /> : <p>{errors[0] ? 'Unable to load devices.' : 'Loading devices…'}</p>}</section><section id="events"><h2>Recent events</h2><p>Latest 100 events, newest first. Simulated activity is labelled.</p>{errors[1] && <p role="alert">{errors[1]} Use Refresh reports to retry.</p>}{events ? <EventFeed events={events} devices={devices ?? []} /> : <p>{errors[1] ? 'Unable to load events.' : 'Loading events…'}</p>}</section>{errors[2] && <p role="alert">{errors[2]} Use Refresh reports to retry.</p>}{audit ? <AuditLog rows={audit} digest={digest} runDigest={()=>void runDigest()} busy={digestBusy} /> : <section id="audit"><h2>Audit log</h2><p>{errors[2]?'Unable to load audit history.':'Loading audit history…'}</p></section>}</>;
-}
+type Tab = "overview" | "activity" | "settings";
 
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
-  const [error, setError] = useState('');
+  const [authed, setAuthed] = useState(() => !!getToken());
+  if (!authed) return <Login onLogin={() => setAuthed(true)} />;
+  return (
+    <Dashboard
+      onLogout={() => {
+        setToken(null);
+        setAuthed(false);
+      }}
+    />
+  );
+}
+
+function Dashboard({ onLogout }: { onLogout: () => void }) {
+  const [tab, setTab] = useState<Tab>("overview");
+  const [rawDevices, setRawDevices] = useState<Device[]>([]);
+  const [events, setEvents] = useState<SecurEvent[]>([]);
+  const [policy, setPolicy] = useState<Policy | null>(null);
+  // Routes from later API milestones; false = the server doesn't have them yet.
+  const [hasPolicy, setHasPolicy] = useState(true);
+  const [canAct, setCanAct] = useState(false);
+  const [canRunAudit, setCanRunAudit] = useState(false);
+  const [offline, setOffline] = useState(false);
+  const [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const clientRef = useRef<ReturnType<typeof createApiClient> | null>(null);
-  if (!clientRef.current) clientRef.current = createApiClient({ onSessionExpired: () => { setUser(null); setError('Your session expired. Please sign in again.'); } });
-  const client = clientRef.current;
-  async function login(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const form = event.currentTarget; const data = new FormData(form);
-    setBusy(true); setError('');
-    try { const identity = await client.login(String(data.get('username')).trim(), String(data.get('password'))); form.reset(); setUser(identity); }
-    catch (error) { setError(message(error)); }
-    finally { setBusy(false); }
+  const [toast, setToast] = useState<string | null>(null);
+  const [muted, setMuted] = useState(false);
+  const [fixing, setFixing] = useState<Issue | null>(null);
+  const [doneIds, setDoneIds] = useState<Set<string>>(loadDone);
+  const [now, setNow] = useState(Date.now());
+  const seenIncidents = useRef<Set<string> | null>(null);
+
+  usePoll(() => setNow(Date.now()), 200);
+
+  useEffect(() => {
+    api.capabilities().then((c) => {
+      setCanAct(c.actions);
+      setCanRunAudit(c.auditRun);
+    });
+  }, []);
+
+  const refresh = useCallback(async () => {
+    try {
+      const [d, e] = await Promise.all([api.devices(), api.events()]);
+      setRawDevices(d);
+      setEvents(e);
+      setOffline(false);
+      if (hasPolicy) {
+        try {
+          setPolicy(await api.policy());
+        } catch (err) {
+          if (!isMissing(err)) throw err;
+          setHasPolicy(false); // stop asking until the next reload
+        }
+      }
+
+      // Alert once per new incident (skip whatever already existed on first load).
+      const incidents = e.filter(isIncident);
+      if (!seenIncidents.current) {
+        seenIncidents.current = new Set(incidents.map((x) => x.id));
+      } else {
+        for (const inc of incidents) {
+          if (seenIncidents.current.has(inc.id)) continue;
+          seenIncidents.current.add(inc.id);
+          if (!muted) {
+            playAlertTone();
+            const spoken = summarize(inc, d.find((x) => x.mac === inc.mac)).spoken;
+            setTimeout(() => speak(spoken), 900);
+          }
+        }
+      }
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) onLogout(); // token expired
+      else setOffline(true);
+    }
+  }, [muted, onLogout, hasPolicy]);
+
+  usePoll(refresh, 2000);
+
+  const devices: DashDevice[] = useMemo(
+    () => rawDevices.map((d) => ({ ...d, protected: !!policy?.protected_macs.includes(d.mac) })),
+    [rawDevices, policy],
+  );
+
+  const flash = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  async function act(action: ActionName, mac?: string) {
+    setBusy(true);
+    try {
+      await api.action(action === "restore_all" ? { action } : { action, mac });
+      await refresh();
+      const name = shortLabel(devices.find((d) => d.mac === mac)?.label ?? "");
+      // POST /actions only queues a command; the agent applies it on its next sync.
+      const msg: Record<ActionName, string> = {
+        quarantine: `Isolating ${name}`,
+        block_wan: `Blocking internet for ${name}`,
+        restore: `Restoring ${name}. It will rejoin Wi-Fi shortly.`,
+        restore_all: "Restoring all devices",
+      };
+      flash(msg[action]);
+    } catch (e) {
+      const text = e instanceof Error ? e.message : "Action failed";
+      // Say it in the dashboard's words: "learning mode" is "automatic protection off".
+      flash(/learning mode/i.test(text) ? "Turn on automatic protection first, then isolate." : text);
+    } finally {
+      setBusy(false);
+    }
   }
-  return <><header><a href="/">SecurIoT</a><span>Network overview{user && ` · ${user.username} (${user.role === 'admin' ? 'Admin' : 'Judge'})`}</span>{user && <button onClick={() => { client.logout(); setUser(null); setError(''); }}>Sign out</button>}</header><main>{user ? <Reports client={client} /> : <section id="login"><h1>Your network, in view.</h1><p>Sign in to review devices and recent activity.</p><form onSubmit={login}><label>Username<input name="username" autoComplete="username" required maxLength={100} autoFocus /></label><label>Password<input name="password" type="password" autoComplete="current-password" required maxLength={1024} /></label><p role="alert">{error}</p><button id="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button></form><p>Use your configured dashboard account. Refreshing this page signs you out.</p></section>}<StorageBadge /></main></>;
+
+  async function savePolicy(p: Policy) {
+    try {
+      setPolicy(await api.savePolicy(p));
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "Couldn't save settings");
+      throw e;
+    }
+  }
+
+  async function setArmed(armed: boolean) {
+    if (!policy) return;
+    unlockAudio();
+    await savePolicy({ ...policy, learning_mode: !armed });
+  }
+
+  const traffic = useTraffic(rawDevices);
+  const feedDevice = devices.find((d) => d.has_feed);
+  const selectedDevice = devices.find((d) => d.mac === selected);
+  const isolated = devices.filter((d) => isContained(d.status));
+  const armed = policy ? !policy.learning_mode : false;
+  const issues = deriveIssues(devices, events, policy, { now, canAct }).filter((i) => !doneIds.has(i.id));
+
+  function markDone(issue: Issue) {
+    const next = new Set([...doneIds, issue.id]);
+    setDoneIds(next);
+    saveDone(next);
+    setFixing(null);
+    flash("Marked as done");
+  }
+
+  async function runFix(issue: Issue) {
+    const kind = issue.action?.kind;
+    setFixing(null);
+    if (kind === "turn_on_protection") await setArmed(true).then(() => flash("Automatic protection is on"));
+    else if (kind === "isolate" && issue.mac) await act("quarantine", issue.mac);
+    else if (kind === "protect_and_isolate" && issue.mac) {
+      await setArmed(true);
+      await act("quarantine", issue.mac);
+    }
+    else if (kind === "restore" && issue.mac) await act("restore", issue.mac);
+  }
+
+  return (
+    <div className="min-h-screen bg-white text-ink">
+      <header className="sticky top-0 z-30 border-b border-hairline bg-white/75 backdrop-blur-xl backdrop-saturate-150">
+        <div className="mx-auto grid h-14 max-w-[1200px] grid-cols-[1fr_auto_1fr] items-center gap-4 px-6">
+          <div className="flex items-center gap-2.5">
+            <Logo size={26} />
+            <span className="text-[17px] font-semibold tracking-tight">SecurIoT</span>
+          </div>
+          <Segmented<Tab>
+            value={tab}
+            onChange={setTab}
+            options={[
+              { value: "overview", label: "Overview" },
+              { value: "activity", label: "Activity" },
+              { value: "settings", label: "Settings" },
+            ]}
+          />
+          <div className="flex items-center justify-end gap-1">
+            {isolated.length > 0 && canAct && (
+              <Button onClick={() => act("restore_all")} disabled={busy} className="h-8">
+                Restore all
+              </Button>
+            )}
+            <StorageBadge />
+            <Button variant="plain" className="h-8 px-3" onClick={() => setMuted((m) => !m)}>
+              {muted ? "Sound off" : "Sound on"}
+            </Button>
+            <Button variant="plain" className="h-8 px-3" onClick={onLogout}>
+              Sign out
+            </Button>
+          </div>
+        </div>
+        <div
+          className={`overflow-hidden bg-fill text-center text-[13px] text-ink transition-all duration-500 ${offline ? "max-h-10 py-2.5" : "max-h-0 py-0"}`}
+          style={{ transitionTimingFunction: "var(--ease-apple)" }}
+        >
+          Can't reach the server. The agent keeps protecting your network locally at port 8787.
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-[1200px] px-6 pb-32 pt-10">
+        {tab === "overview" && (
+          <div key="overview" className="animate-rise-in space-y-10">
+            <StatusBanner
+              issues={issues}
+              armed={armed}
+              hasPolicy={hasPolicy && !!policy}
+              onArm={setArmed}
+              onReview={() => document.getElementById("attention")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            />
+
+            <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+              <Stat label="Devices" value={devices.length} />
+              <Stat
+                label="Need attention"
+                value={issues.length}
+                color={issues.length ? severityMeta[issues[0].severity].color : undefined}
+              />
+              <Stat label="Cut off" value={isolated.length} color={isolated.length ? "text-sev-critical" : undefined} />
+              <Card className="flex flex-col justify-between px-5 py-4">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[13px] font-medium text-ink-2">Network traffic</span>
+                  <span className="flex items-center gap-1.5 text-[11px] font-medium text-ok">
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ok" />
+                    Live
+                  </span>
+                </div>
+                <div className="mt-2 flex items-end justify-between gap-3">
+                  <span className="text-[22px] font-semibold leading-none tracking-tight tabular-nums text-ink">{rate(traffic.total[traffic.total.length - 1] ?? 0)}</span>
+                  <Sparkline data={traffic.total} width={96} height={30} color="var(--color-ink)" />
+                </div>
+              </Card>
+            </section>
+
+            <AttentionList issues={issues} onFix={setFixing} />
+
+            <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_380px]">
+              <div className="space-y-10">
+                <DeviceList devices={devices} traffic={traffic} onSelect={setSelected} />
+                <div>
+                  <SectionTitle
+                    action={
+                      <button onClick={() => setTab("activity")} className="text-[14px] font-medium text-ink-2 transition-colors hover:text-ink">
+                        See all
+                      </button>
+                    }
+                  >
+                    Recent activity
+                  </SectionTitle>
+                  <ActivityList events={events} devices={devices} onSelect={setSelected} limit={6} />
+                </div>
+              </div>
+              <div className="space-y-4 lg:sticky lg:top-24 lg:self-start">
+                <SectionTitle>Status</SectionTitle>
+                {feedDevice && <CameraCard device={feedDevice} now={now} />}
+                <ContainmentPanel events={events} devices={devices} now={now} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {tab === "activity" && (
+          <div key="activity" className="animate-rise-in">
+            <ActivityView devices={devices} events={events} onAction={act} onSelect={setSelected} canAct={canAct} canRunAudit={canRunAudit} />
+          </div>
+        )}
+
+        {tab === "settings" && !hasPolicy && (
+          <div key="settings-missing" className="mx-auto max-w-[680px] animate-rise-in">
+            <Card className="px-6 py-8 text-center">
+              <h2 className="text-[19px] font-semibold text-ink">Settings aren't available yet</h2>
+              <p className="mt-2 text-[15px] text-ink-2">The server doesn't have the policy route yet. Protection, response and protected devices will appear here once it does.</p>
+            </Card>
+          </div>
+        )}
+
+        {tab === "settings" && policy && (
+          <div key="settings" className="animate-rise-in">
+            <SettingsView policy={policy} devices={devices} onSave={savePolicy} />
+          </div>
+        )}
+      </main>
+
+      {USE_MOCK && tab === "overview" && <DemoControls />}
+
+      {fixing && (
+        <FixSheet
+          issue={fixing}
+          busy={busy}
+          onClose={() => setFixing(null)}
+          onAction={runFix}
+          onDone={markDone}
+          onOpenDevice={(mac) => {
+            setFixing(null);
+            setSelected(mac);
+          }}
+        />
+      )}
+
+      {selectedDevice && <DeviceDetail device={selectedDevice} events={events} busy={busy} canAct={canAct} onClose={() => setSelected(null)} onAction={act} />}
+
+      <div
+        className={`fixed left-1/2 top-20 z-50 -translate-x-1/2 transition-all duration-500 ${toast ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-3 opacity-0"}`}
+        style={{ transitionTimingFunction: "var(--ease-apple)" }}
+      >
+        <div className="rounded-full bg-ink/90 px-5 py-2.5 text-[14px] font-medium text-white shadow-[0_10px_30px_rgba(0,0,0,0.18)] backdrop-blur-xl">
+          {toast}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const DONE_KEY = "securiot.doneIssues";
+
+function loadDone(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(DONE_KEY) ?? "[]"));
+  } catch {
+    return new Set();
+  }
+}
+
+function saveDone(ids: Set<string>) {
+  try {
+    localStorage.setItem(DONE_KEY, JSON.stringify([...ids]));
+  } catch {
+    // per-viewer convenience only
+  }
+}
+
+function Stat({ label, value, color }: { label: string; value: number; color?: string }) {
+  const shown = useCountUp(value);
+  return (
+    <Card className="px-5 py-4">
+      <div className="text-[13px] font-medium text-ink-2">{label}</div>
+      <div className={`mt-1 text-[32px] font-semibold leading-none tracking-tight tabular-nums transition-colors duration-500 ${color ?? "text-ink"}`}>{shown}</div>
+    </Card>
+  );
+}
+
+/** Mock-only controls standing in for the phone and a cloud outage. */
+function DemoControls() {
+  const [offline, setOffline] = useState(mockServer.isOffline());
+  const [running, setRunning] = useState(false);
+  const [joined, setJoined] = useState(mockServer.guestJoined());
+  usePoll(() => setRunning(mockServer.attackRunning()), 300);
+
+  return (
+    <div className="fixed bottom-6 left-6 z-30 flex items-center gap-1.5 rounded-full bg-white/80 p-1.5 pl-4 shadow-[0_10px_40px_rgba(0,0,0,0.12)] ring-1 ring-hairline backdrop-blur-xl">
+      <span className="pr-1.5 text-[12px] font-semibold uppercase tracking-wide text-ink-3">Demo</span>
+      <Button
+        variant="primary"
+        className="h-8"
+        disabled={running}
+        onClick={() => {
+          unlockAudio();
+          mockServer.simulateQrAttack();
+          setRunning(true);
+        }}
+      >
+        {running ? "Attack in progress" : "Simulate QR attack"}
+      </Button>
+      <Button
+        className="h-8"
+        disabled={joined}
+        onClick={() => {
+          mockServer.simulateNewDevice();
+          setJoined(true);
+        }}
+      >
+        Device joins
+      </Button>
+      <Button
+        className="h-8"
+        onClick={() => {
+          mockServer.setOffline(!offline);
+          setOffline(!offline);
+        }}
+      >
+        {offline ? "Restore cloud" : "Cloud outage"}
+      </Button>
+    </div>
+  );
 }
