@@ -207,7 +207,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
         <div className="mx-auto grid h-14 max-w-[1200px] grid-cols-[1fr_auto_1fr] items-center gap-4 px-6">
           <div className="flex items-center gap-2.5">
             <Logo size={26} />
-            <span className="text-[17px] font-semibold tracking-tight">SecurIoT</span>
+            <span className="text-[17px] font-semibold tracking-tight">CasaWarden</span>
           </div>
           <Segmented<Tab>
             value={tab}

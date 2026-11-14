@@ -34,7 +34,7 @@ export function Login({ onLogin }: { onLogin: () => void }) {
       <form onSubmit={submit} className="w-full max-w-[360px] animate-rise-in">
         <div className="mb-10 flex flex-col items-center text-center">
           <Logo size={56} />
-          <h1 className="mt-6 text-[32px] font-semibold tracking-tight text-ink">SecurIoT</h1>
+          <h1 className="mt-6 text-[32px] font-semibold tracking-tight text-ink">CasaWarden</h1>
           <p className="mt-1 text-[15px] text-ink-2">Security for the devices you can't patch.</p>
         </div>
         <div className="space-y-3">

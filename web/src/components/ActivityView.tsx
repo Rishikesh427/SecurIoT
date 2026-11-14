@@ -98,7 +98,7 @@ export function ActivityView({
             {!hasAudit ? (
               <p className="px-5 py-8 text-center text-[14px] text-ink-3">The audit log will appear once the server supports it.</p>
             ) : entries.length === 0 ? (
-              <p className="px-5 py-8 text-center text-[14px] text-ink-3">Every action taken by you or SecurIoT appears here.</p>
+              <p className="px-5 py-8 text-center text-[14px] text-ink-3">Every action taken by you or CasaWarden appears here.</p>
             ) : (
               <ul className="divide-y divide-hairline">
                 {entries.map((e) => {

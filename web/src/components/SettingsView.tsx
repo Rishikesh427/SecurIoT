@@ -27,7 +27,7 @@ export function SettingsView({ policy, devices, onSave }: { policy: Policy; devi
 
   return (
     <div className="mx-auto max-w-[680px] space-y-8 pb-24">
-      <Group title="Protection" footer="New installs start in learning mode. Turn on automatic protection to let SecurIoT isolate threats on its own.">
+      <Group title="Protection" footer="New installs start in learning mode. Turn on automatic protection to let CasaWarden isolate threats on its own.">
         <Row label="Automatic protection" detail={draft.learning_mode ? "Learning mode, watch only" : "Threats are isolated automatically"}>
           <Switch label="Automatic protection" checked={!draft.learning_mode} onChange={(v) => set((p) => ({ ...p, learning_mode: !v }))} />
         </Row>

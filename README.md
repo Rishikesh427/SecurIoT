@@ -1,4 +1,4 @@
-# 🛡️ SecurIoT
+# 🛡️ CasaWarden
 
 **Your smart TV is spying on you. Your smart plug is a backdoor. And you can't patch either one.**
 
@@ -18,7 +18,7 @@ A 2026 Bitdefender/NETGEAR study of 10.4 million homes found that smart TVs, sma
 
 1. Everything on the dashboard is green.
 2. We attack from a phone: a network scan plus a beacon to a suspicious domain.
-3. **In seconds**, SecurIoT flags it, Gemini explains it, and the device is walled off.
+3. **In seconds**, CasaWarden flags it, Gemini explains it, and the device is walled off.
 4. The Bluetooth speaker goes silent, physical proof that containment worked.
 5. One click on **Restore**, and everything is back.
 
@@ -26,7 +26,7 @@ Time to containment is on screen. No guesswork.
 
 ## Why it wins
 
-| Others | SecurIoT |
+| Others | CasaWarden |
 |---|---|
 | Alert you, then wait | **Acts automatically, safely** |
 | Need vendor firmware patches | **Protects devices that can never be patched** |
@@ -85,6 +85,6 @@ and fallback behavior. No schema migration is needed for this feature.
 
 Every home router should defend like an enterprise firewall, no security degree required.
 
-**SecurIoT: security for the devices you can't patch.**
+**CasaWarden: security for the devices you can't patch.**
 
 *Only test on devices and networks you own.*
