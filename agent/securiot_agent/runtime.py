@@ -94,8 +94,17 @@ class Agent:
         if self.inventory.observe(observation, self.clock()) is None:
             return self._event("observation_ignored", observation.mac, {"reason": "Unknown device"})
         finding = self.detector.observe(observation)
+        assessor = getattr(self.detector, "assess_device", None)
+        if assessor is not None:
+            device = self.inventory.get(observation.mac)
+            device.assessment = assessor(device)
         if finding is None:
             return None
+        if not finding.containment_allowed:
+            return self._event("detection", observation.mac, {
+                "finding": finding.kind, "detection": finding.evidence,
+                "decision": "supporting_evidence_only",
+            })
         return self.request_action("quarantine", observation.mac, finding=finding)
 
     def request_action(self, action: str, mac: str | None = None, *, finding: Finding | None = None) -> Event:

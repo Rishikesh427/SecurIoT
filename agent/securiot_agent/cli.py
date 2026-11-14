@@ -15,6 +15,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--devices", type=Path,
                         default=Path(__file__).resolve().parents[1] / "fixtures" / "devices.json",
                         help="Known-device JSON for replay (default: generated fixture devices).")
+    parser.add_argument("--detector", choices=("ml", "preview"), default="ml",
+                        help="Replay detector: Worker C's package (default) or the legacy preview.")
     parser.add_argument("--arm", action="store_true",
                         help="Explicitly allow mock actions during the walkthrough; learning mode is the default.")
     parser.add_argument("--state-dir", type=Path,
@@ -27,13 +29,16 @@ def main(argv: list[str] | None = None) -> int:
             # Keep the original summary demo usable without the optional Scapy install.
             from .replay import run_replay
 
-            run_replay(args.replay, args.devices, state_dir, args.arm)
+            run_replay(args.replay, args.devices, state_dir, args.arm, args.detector)
         else:
             run_demo(state_dir, args.arm)
     except ModuleNotFoundError as error:
         if error.name and error.name.startswith("scapy"):
             print('Packet replay needs Scapy. Install with: python3 -m pip install -e "agent[replay]"',
                   file=sys.stderr)
+            return 1
+        if error.name and error.name.startswith("securiot_ml"):
+            print('Worker C integration needs: python3 -m pip install -e ./ml', file=sys.stderr)
             return 1
         raise
     except (OSError, ValueError) as error:

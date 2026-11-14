@@ -6,7 +6,31 @@ This is Worker A's offline development slice from the [V3 build plan](https://do
 
 It runs with Python 3.11+. The original summary walkthrough uses only the standard library; packet-file replay uses optional Scapy. This build does not sniff live traffic, scan hosts, change firewall settings, or contact the cloud.
 
-**Current stage: standalone offline agent.** It reads packets from files, calculates traffic features, evaluates preview scan rules, applies safety checks, performs mock actions, and saves events. Worker C's production detection/scoring, Worker B's cloud sync, and Linux network controls remain separate integrations. See [how the tracks fit together](INTEGRATION.md).
+**Current stage: standalone offline agent.** It reads packets from files, calculates traffic features, evaluates preview scan rules, applies safety checks, performs mock actions, and saves events. Worker C's detection/scoring is connected for offline replay; Worker B's cloud sync and Linux network controls are still pending. See [how the tracks fit together](INTEGRATION.md).
+
+## Combined agent + Worker C testing
+
+Worker C's actual detector/scorer is now the default for the replay CLI. From the repository root:
+
+```bash
+agent/.venv/bin/python -m pip install -e 'agent[replay]' -e ./ml pytest
+agent/.venv/bin/python -m pytest agent/tests ml/tests -q
+```
+
+This runs both tracks' unit tests and the combined packet → C detector/scorer → local safety → mock action tests. The ML package must be installed editable because its reference JSON data currently lives alongside its source directory.
+
+Compare a supporting warning with an actionable scan:
+
+```bash
+agent/.venv/bin/python agent/agent.py --replay agent/fixtures/scan.pcap --arm
+agent/.venv/bin/python agent/agent.py --replay agent/fixtures/arp_scan.pcap --arm
+```
+
+With fresh state, the first reports `supporting_evidence_only` and keeps the device normal; the second applies mock quarantine. Omit `--arm` for learning mode. Pass a fresh `--state-dir` to isolate repeated experiments from saved mock restrictions. Use `--detector preview` to explicitly select the earlier preview behavior; the original `--simulate` walkthrough still uses its demo detector.
+
+C receives per-packet ARP/SYN deltas and owns its own 10-second window. Only C's `scan_arp`/`decoy_touch` findings with anomaly ≥0.5 are eligible for containment; target scans and volume findings remain advisory. Packet replay currently supplies ARP/SYN activity, not configured decoy hits. Risk uses C's `assess()` and its native 0–1 anomaly scale. The strongest observed anomaly is retained for this replay session; decay and persistence of that score are future work. Baseline files are not automatically enabled because their traffic interval must be agreed before connecting volume measurements.
+
+Device JSON can optionally supply verified `ports`, `vendor`, `model`, `eol`, `default_creds`, and `cloud_only` facts for assessment. A bounded `persona` is allowed only when the input explicitly says `simulated: true`. Scanned destination ports aren't evidence that a service is open on the source device. The CLI shows C's native confidence labels; mapping them into the cloud contract remains a cloud-adapter task.
 
 ## Replay packet files
 
@@ -14,7 +38,7 @@ The replay environment has been created locally at `agent/.venv`. To set it up o
 
 ```bash
 python3 -m venv agent/.venv
-agent/.venv/bin/python -m pip install -e 'agent[replay]'
+agent/.venv/bin/python -m pip install -e 'agent[replay]' -e ./ml
 ```
 
 On Windows PowerShell, use `py -m venv agent/.venv` and `agent\.venv\Scripts\python.exe` in place of the Unix environment path below.
@@ -25,10 +49,10 @@ Start with a generated scan capture in learning mode:
 agent/.venv/bin/python agent/agent.py --replay agent/fixtures/scan.pcap
 ```
 
-You should see one scan finding and `would have: quarantine`. Enable mock quarantine explicitly:
+You should see one supporting scan finding and no restriction. To exercise actionable ARP detection with mock quarantine:
 
 ```bash
-agent/.venv/bin/python agent/agent.py --replay agent/fixtures/scan.pcap --arm
+agent/.venv/bin/python agent/agent.py --replay agent/fixtures/arp_scan.pcap --arm
 ```
 
 Try `normal.pcap`, `slow_targets.pcap`, and `protected_arp.pcap` in the same folder. The [fixture guide](fixtures/README.md) explains each expected outcome. The captures are **generated test data**, not recordings from real devices. The parser really reads their encoded headers and timestamps; there is no filename-to-outcome shortcut.
@@ -134,7 +158,7 @@ The tests use temporary directories, generated packets, and a controllable clock
 
 ## Later milestones
 
-1. Adapt Worker C's real `securiot_ml` detector and assessment fields.
+1. Extend the current C adapter with explicitly configured decoy hits and agreed baseline intervals.
 2. Add Scapy packet capture/discovery and decoy listeners on the Linux router.
 3. Add nftables enforcement and a local panic command, with rollback tests on Linux.
 4. Integrate Worker B's contract for authenticated cloud sync and durable outbox delivery.

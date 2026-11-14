@@ -26,6 +26,8 @@ class Device:
     dests: list[str] = field(default_factory=list)
     last_seen: float | None = None
     dns_queries: list[str] = field(default_factory=list)
+    risk_facts: dict[str, Any] = field(default_factory=dict)
+    assessment: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.mac = normalize_mac(self.mac)
@@ -51,6 +53,8 @@ class Observation:
     window_bytes_in: int = 0
     window_bytes_out: int = 0
     captured_at: float | None = None
+    packet_arp_requests: int = 0
+    packet_syn_targets: tuple[tuple[str, int], ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "mac", normalize_mac(self.mac))
@@ -62,6 +66,7 @@ class Observation:
 class Finding:
     kind: str
     evidence: dict[str, Any]
+    containment_allowed: bool = True
 
 
 @dataclass

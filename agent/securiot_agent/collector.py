@@ -62,17 +62,19 @@ class TrafficCollector:
             if len(window) >= self.max_window_packets:
                 raise ValueError(f"Too many packets in the window for {mac}; stopped rather than undercounting")
             window.append(activity)
-            observations.append(self._snapshot(mac, activity.bytes_in, activity.bytes_out, packet.timestamp))
+            observations.append(self._snapshot(mac, activity, packet.timestamp))
         return observations
 
     def _prune(self, window: deque[_Activity], now: float) -> None:
         while window and window[0].timestamp < now - self.window_seconds:
             window.popleft()
 
-    def _snapshot(self, mac: str, bytes_in: int, bytes_out: int, now: float) -> Observation:
+    def _snapshot(self, mac: str, activity: _Activity, now: float) -> Observation:
         window = self.windows[mac]
         return Observation(
-            mac=mac, bytes_in=bytes_in, bytes_out=bytes_out,
+            mac=mac, bytes_in=activity.bytes_in, bytes_out=activity.bytes_out,
+            packet_arp_requests=int(activity.arp_request),
+            packet_syn_targets=(activity.syn_target,) if activity.syn_target is not None else (),
             destinations=tuple(sorted({a.destination for a in window if a.destination is not None})),
             syn_targets=tuple(sorted({a.syn_target for a in window if a.syn_target is not None})),
             arp_requests=sum(a.arp_request for a in window),

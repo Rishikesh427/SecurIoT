@@ -3,7 +3,7 @@
 ## Stage after packet replay
 
 We have a **standalone offline agent component**: actual packet-file decoding,
-per-device traffic measurements, preview detection, safety decisions, mock
+per-device traffic measurements, Worker C detection/scoring, safety decisions, mock
 enforcement, restart state, and an audit/outbox. Generated capture fixtures make
 the whole chain reproducible on a development laptop.
 
@@ -24,9 +24,33 @@ flowchart LR
     B -->|Queued command| S
 ```
 
-The C/B/D boxes show the intended seams. The current runnable path uses a
-threshold-preview detector and ends at the local outbox; it doesn't make calls
-to teammates' services yet.
+The C/B/D boxes show the intended seams. The replay CLI now calls Worker C's actual detector and scorer locally and ends
+at the outbox. The preview is available only by explicit selection. Cloud
+services remain pending.
+
+## Worker C integration status: connected for offline replay
+
+`ml_adapter.py` imports the real `securiot_ml.detect.Detector` and `assess()`.
+The replay CLI defaults to `--detector ml`; `--detector preview` selects legacy
+behavior. Combined tests live in `tests/test_ml_integration.py`.
+
+The collector adds explicit per-packet `packet_arp_requests` and
+`packet_syn_targets` fields. C receives those deltas rather than rolling totals,
+and maintains its own window. The adapter aligns C's public `t0` with the replay
+session clock and keeps its warmup enabled. Protected MACs are supplied to C's
+ignore list as well as guarded by the agent.
+
+C marks target scans as supporting evidence: they are recorded without automatic
+action. Only `scan_arp` and `decoy_touch` with anomaly ≥0.5 can request containment;
+the agent still applies learning mode, protection, cooldown, and restore grace.
+Raw packet replay doesn't configure decoy hits yet, and cached baselines aren't
+automatically enabled until their byte intervals are agreed.
+
+Assessments use C's native anomaly ratio and retain the maximum observed ratio
+for this offline session. Static risk factors come from explicit device config;
+targeted destination ports are never treated as open services on the sender.
+C's native confidence labels are shown locally; conversion to the cloud enum,
+score decay, and score persistence remain future integration decisions.
 
 ## Worker C: the brain, called locally
 
@@ -39,11 +63,8 @@ output is `Observation` in `models.py`. `bytes_in`/`bytes_out` are per-packet de
 ARP counts, unique SYN targets, DNS names, and `window_bytes_*` are current-window
 snapshots. The distinction prevents double-counting.
 
-Agree with C whether their detector wants raw observations or these window
-features, then add an adapter at `Detector.observe()`. If C owns windowing, feed
-the raw packet facts rather than windowing a second time. C's interface should
-not have to mimic our preview. Remove the preview from the integrated path once
-the adapter is tested with C's fixtures. No risk scores are manufactured here.
+The current adapter follows C's delta-based callable interface. The preview is
+kept as an explicit regression mode, and C's package supplies all integrated scores.
 
 ## Worker B: the shared contract and cloud
 
@@ -61,7 +82,7 @@ build a serialization adapter and validate its batches against the shared schema
 | --- | --- |
 | `status: blocked` | Export `wan_blocked`; keep persisted local state migration explicit if renaming |
 | Numeric `last_seen` | Export a UTC ISO-8601 timestamp |
-| No assessment fields | Populate required fields using C's assessment; don't invent a scored device |
+| C assessment in a local dictionary | Export required fields and translate C confidence labels to the contract enum |
 | Local `protected` and `dns_queries` fields | Keep them local or map through agreed policy/evidence; Device forbids extra fields |
 | Local event `kind: detection` | Export the actual supported finding, e.g. `scan_targets` or `scan_arp` |
 | Top-level `simulated: true` on local events | Put replay provenance in `evidence`; Event forbids extra top-level fields |
