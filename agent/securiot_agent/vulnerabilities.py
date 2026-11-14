@@ -21,6 +21,11 @@ class VulnerabilityAssessor:
             path = Path(securiot_ml.__file__).resolve().parent.parent / "data/kev.json"
             catalog = json.loads(path.read_text())
         self.catalog = catalog
+        self.index = {}
+        for row in catalog.get("vulnerabilities", []):
+            if re.fullmatch(r"CVE-\d{4}-\d{4,}", row.get("cveID", "")):
+                key = (identity(row.get("vendorProject")), identity(row.get("product")))
+                self.index.setdefault(key, []).append(row)
 
     def assess(self, device, anomaly=0):
         facts = dict(device.risk_facts)
@@ -55,12 +60,7 @@ class VulnerabilityAssessor:
                 flag(key, summary, {"source": "simulation_persona" if key in persona else "device_configuration",
                                     "verified_by_agent": False})
         vendor, model = identity(profile.get("vendor")), identity(profile.get("model"))
-        matches = []
-        for row in self.catalog.get("vulnerabilities", []):
-            if (vendor and model and identity(row.get("vendorProject")) == vendor
-                    and identity(row.get("product")) == model
-                    and re.fullmatch(r"CVE-\d{4}-\d{4,}", row.get("cveID", ""))):
-                matches.append(row)
+        matches = self.index.get((vendor, model), []) if vendor and model else []
         kev = None
         if persona.get("kev") in ("confirmed", "possible"):
             kev = {"confidence": "possible"}
@@ -77,7 +77,12 @@ class VulnerabilityAssessor:
         # Web ports get risk points only when explicitly reported as admin ports.
         scoring = {**profile, "ports": sorted((ports & SERVICES.keys()) | (ports & admin_ports)),
                    "anomaly": anomaly}
+        static = score_device({**scoring, "anomaly": 0}, kev)
         result = score_device(scoring, kev)
+        unknown = [key for key in ("vendor", "model", "eol", "default_creds", "cloud_only")
+                   if profile.get(key) is None or profile.get(key) == ""]
+        if "ports" not in facts:
+            unknown.append("ports")
         reasons = []
         for reason in result.reasons:
             if reason.startswith("Anomalous behavior"):
@@ -87,6 +92,9 @@ class VulnerabilityAssessor:
             else:
                 reasons.append(("Simulated fact: " if simulated else "Reported fact (not independently checked): ") + reason)
         reasons += [f"{f['status']}: {f['summary']}" for f in flags]
+        if unknown:
+            reasons.append("Unknown inputs: " + ", ".join(unknown) + ". Low risk is not proof of safety.")
+        reasons.append(f"Static risk {static.score}/100; behavioral contribution {result.score - static.score} point(s).")
         age = None
         try:
             released = datetime.fromisoformat(self.catalog["dateReleased"].replace("Z", "+00:00"))
@@ -95,9 +103,13 @@ class VulnerabilityAssessor:
             pass
         return {"type": profile.get("type", "unknown"), "eol": profile.get("eol"),
                 "cloud_only": profile.get("cloud_only"), "risk": result.score, "band": result.band,
+                "static_risk": static.score, "static_band": static.band,
+                "behavior_points": result.score - static.score,
+                "risk_factors": result.factors,
                 "confidence": "possible" if kev else "n/a", "reasons": reasons, "vulnerability_flags": flags,
                 "coverage": {"catalog_version": self.catalog.get("catalogVersion"), "catalog_age_days": age,
-                             "identity_complete": bool(vendor and model), "firmware_applicability_checked": False,
+                             "identity_complete": bool(vendor and model), "unknown_inputs": unknown,
+                             "facts_verified_by_agent": False, "firmware_applicability_checked": False,
                              "matching_catalog_entries": len(matches),
                              "note": "No match is not proof of safety. No active port/credential checks were run."}}
 
