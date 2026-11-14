@@ -1,10 +1,10 @@
-# 🛡️ IoT Sentinel
+# 🛡️ SecurIoT
 
 **Your smart TV is spying on you. Your smart plug is a backdoor. And you can't patch either one.**
 
 A 2026 Bitdefender/NETGEAR study of 10.4 million homes found that smart TVs, smart plugs, and NAS devices make up **67.1% of all observed home vulnerabilities**. Owners can't fix the firmware, and most never see the threat coming.
 
-**IoT Sentinel fixes the one place you can: the network.**
+**SecurIoT fixes the one place you can: the network.**
 
 ## What if your router could think?
 
@@ -18,7 +18,7 @@ A 2026 Bitdefender/NETGEAR study of 10.4 million homes found that smart TVs, sma
 
 1. Everything on the dashboard is green.
 2. We attack from a phone: a network scan plus a beacon to a suspicious domain.
-3. **In seconds**, Sentinel flags it, Gemini explains it, and the device is walled off.
+3. **In seconds**, SecurIoT flags it, Gemini explains it, and the device is walled off.
 4. The Bluetooth speaker goes silent, physical proof that containment worked.
 5. One click on **Restore**, and everything is back.
 
@@ -26,7 +26,7 @@ Time to containment is on screen. No guesswork.
 
 ## Why it wins
 
-| Others | IoT Sentinel |
+| Others | SecurIoT |
 |---|---|
 | Alert you, then wait | **Acts automatically, safely** |
 | Need vendor firmware patches | **Protects devices that can never be patched** |
@@ -67,6 +67,6 @@ Set `DATABASE_URL`, `GEMINI_API_KEY`, `JWT_SECRET`, and `AGENT_API_KEY` in `.env
 
 Every home router should defend like an enterprise firewall, no security degree required. Next up: a community threat feed, Matter/Thread checks, and tamper-proof audit logs on Solana.
 
-**IoT Sentinel: security for the devices you can't patch.**
+**SecurIoT: security for the devices you can't patch.**
 
 *Only test on devices and networks you own.*
