@@ -20,7 +20,7 @@ def device_record(device, anomaly=0):
         "ports": sorted(set(facts.get("ports", []))), "bytes_in": device.bytes_in,
         "bytes_out": device.bytes_out, "dests": device.dests,
         "last_seen": datetime.fromtimestamp(device.last_seen, timezone.utc).isoformat(),
-        "simulated": True, "has_feed": False,
+        "simulated": device.simulated, "has_feed": False,
         "eol": score.get("eol"), "default_creds": facts.get("default_creds"),
         "cloud_only": score.get("cloud_only"), "anomaly": round(min(1, max(0, anomaly)) * 40),
         "risk": score["risk"], "band": score["band"],
@@ -33,7 +33,8 @@ def event_record(event):
     kind = event["evidence"].get("finding", event["kind"])
     if kind not in KINDS or event["mac"] is None:
         return None
+    sim = event.get("simulated", True)
     return {"id": event["id"], "mac": event["mac"], "ts": event["ts"], "kind": kind,
-            "evidence": {**event["evidence"], "simulated": True, "enforcement": "mock"},
+            "evidence": {**event["evidence"], "simulated": sim, "enforcement": "mock" if sim else "live"},
             "actions_taken": event["actions_taken"], "would_have": event["would_have"],
-            "source": "simulator"}
+            "source": "simulator" if sim else "agent"}

@@ -47,7 +47,7 @@ def load_devices(path: Path) -> Inventory:
             if not isinstance(admin_ports, list) or any(type(port) is not int or port not in ports for port in admin_ports):
                 raise ValueError("admin_ports must be a subset of reported integer ports")
             devices.append(Device(record["mac"], record["ip"], name,
-                                  protected=record.get("protected", False), simulated=True,
+                                  protected=record.get("protected", False), simulated=record.get("simulated", True) is True,
                                   risk_facts={key: record[key] for key in (
                                       "ports", "admin_ports", "vendor", "model", "eol", "default_creds", "cloud_only"
                                   ) if key in record}))

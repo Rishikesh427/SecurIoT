@@ -1,6 +1,7 @@
 """Connect inventory → detector → safety policy → mock action → durable event."""
 
 from collections.abc import Callable
+import os
 import time
 import json
 from typing import Any
@@ -23,8 +24,14 @@ class Agent:
         policy: Policy | None = None,
         clock: Callable[[], float] = time.time,
     ):
-        if not enforcer.simulated or any(not d.simulated for d in inventory.devices.values()):
-            raise ValueError("This build supports simulated devices and enforcement only.")
+        if enforcer.simulated:
+            if any(not d.simulated for d in inventory.devices.values()):
+                raise ValueError("This build supports simulated devices and enforcement only.")
+        else:
+            if os.environ.get("SECURIOT_REAL_ENFORCEMENT") != "yes":
+                raise ValueError("Real enforcement needs SECURIOT_REAL_ENFORCEMENT=yes")
+            if any(d.simulated for d in inventory.devices.values()):
+                raise ValueError('Real enforcement needs every device to have "simulated": false')
         self.inventory = inventory
         self.detector = detector
         self.enforcer = enforcer
@@ -79,7 +86,7 @@ class Agent:
         actions_taken: list[str] | None = None, would_have: list[str] | None = None,
     ) -> Event:
         event = Event.at(
-            self.clock(), kind=kind, mac=mac, evidence=evidence,
+            self.clock(), kind=kind, mac=mac, evidence=evidence, simulated=self.enforcer.simulated,
             actions_taken=actions_taken or [], would_have=would_have or [],
         )
         self.storage.append_event(event)
@@ -119,11 +126,48 @@ class Agent:
                 "finding": finding.kind, "detection": finding.evidence,
                 "decision": "supporting_evidence_only",
             })
-        action = "quarantine" if self.ladder["quarantine"] else "block_wan" if self.ladder["block_wan"] else None
+        action = self.choose_action(observation.mac, finding)
         if action is None:
+            mac = normalize_mac(observation.mac)
+            device = self.inventory.get(mac)
+            if device is not None and device.protected:       # guards are reported even for notify-only
+                decision = "protected_device"
+            elif self.clock() < self.grace_until.get(mac, 0):
+                decision = "restore_grace"
+            elif self._score(finding) >= self.NOTIFY_AT:
+                decision = "notify_only"
+            else:
+                decision = "below_notify_threshold"
             return self._event("detection", observation.mac, {
-                "finding": finding.kind, "detection": finding.evidence, "decision": "notify_only"})
+                "finding": finding.kind, "detection": finding.evidence, "decision": decision})
         return self.request_action(action, observation.mac, finding=finding)
+
+    NOTIFY_AT, BLOCK_AT, QUARANTINE_AT = 0.95, 0.97, 0.99   # detector score tiers
+
+    @staticmethod
+    def _score(finding: Finding) -> float:
+        # No numeric score: keep the old behaviour (contain). containment_allowed
+        # has already filtered out findings that must never contain.
+        return float(finding.evidence.get("anomaly", 0.99))
+
+    def choose_action(self, mac: str, finding: Finding) -> str | None:
+        """notify -> block_wan -> quarantine. A decoy touch, or a scan that continues
+        after a WAN block, goes straight to quarantine. None means notify only."""
+        score = self._score(finding)
+        device = self.inventory.get(mac)
+        if finding.kind == "decoy_touch" or score >= self.QUARANTINE_AT:
+            wanted = "quarantine"
+        elif device is not None and device.status == "blocked" and score >= self.BLOCK_AT:
+            wanted = "quarantine"
+        elif score >= self.BLOCK_AT:
+            wanted = "block_wan"
+        else:
+            return None
+        steps = ["quarantine", "block_wan"]
+        for step in steps[steps.index(wanted):]:   # fall back to a step the policy still allows
+            if self.ladder[step]:
+                return step
+        return None
 
     def request_action(self, action: str, mac: str | None = None, *, finding: Finding | None = None) -> Event:
         evidence: dict[str, Any] = {"requested_action": action}
@@ -179,7 +223,7 @@ class Agent:
         if action == "restore":
             self.grace_until[mac] = now + self.policy.restore_grace_seconds
         self._save()
-        return decision("applied_to_simulated_device", taken=True)
+        return decision("applied_to_simulated_device" if self.enforcer.simulated else "applied_to_device", taken=True)
 
     def _restore_all(self) -> Event:
         restored: list[str] = []
