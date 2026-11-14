@@ -14,6 +14,8 @@ def main(argv: list[str] | None = None) -> int:
                       help="Walk through synthetic summary observations.")
     mode.add_argument("--replay", type=Path, metavar="CAPTURE",
                       help="Read Ethernet packets from an offline PCAP/PCAPNG file.")
+    mode.add_argument("--live", metavar="IFACE",
+                      help="Sniff a live interface (needs root). Enforcement stays mocked.")
     parser.add_argument("--devices", type=Path,
                         default=Path(__file__).resolve().parents[1] / "fixtures" / "devices.json",
                         help="Known-device JSON for replay (default: generated fixture devices).")
@@ -45,6 +47,11 @@ def main(argv: list[str] | None = None) -> int:
             from .replay import run_replay
 
             run_replay(args.replay, args.devices, state_dir, args.arm, args.detector, args.decoy_ip)
+        elif args.live:
+            from .live import run_live
+
+            run_live(args.live, args.devices, runtime_dir / "live" if not args.state_dir else args.state_dir,
+                     args.arm, args.decoy_ip)
         else:
             run_demo(state_dir, args.arm)
     except ModuleNotFoundError as error:

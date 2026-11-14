@@ -1,7 +1,7 @@
 import time, collections
 import pathlib
 
-from .model import Window
+from .model import Window, FEATS
 
 try:
     import joblib
@@ -15,6 +15,8 @@ DEFAULTS = {"arp_threshold": 30, "pair_threshold": 20, "window": 10, "warmup": 3
 MIN_SAFE = {"arp_threshold": 10, "pair_threshold": 8}  # cloud policy can't go below these
 ML_MIN_THRESHOLD = 0.9    # cloud policy can't lower the ML alert score below this
 ML_DEFAULT_THRESHOLD = 0.95
+ML_MIN_SIGNAL = 8         # ML may only alert when the window has this many ARP requests or SYN targets
+ML_REALERT_SECS = 10      # repeat an ML alert for the same device at most this often
 ML_CONSECUTIVE = 2        # consecutive over-threshold windows before alerting
 TELNET_PORTS = {23, 2323}
 
@@ -29,6 +31,7 @@ class Detector:
         self.pairs = collections.defaultdict(collections.deque)
         self.win = collections.defaultdict(Window)
         self.streak = collections.defaultdict(int)
+        self.last_alert = {}
         self.model, self.feats, self.thr = None, None, ML_DEFAULT_THRESHOLD
         if joblib is not None:
             try:
@@ -76,11 +79,15 @@ class Detector:
                     "evidence": {**ev, "decoy_ports": hits}}
 
         if self.model is not None:
-            score = float(self.model.predict_proba(pd.DataFrame([f], columns=self.feats))[0, 1])
-            self.streak[mac] = self.streak[mac] + 1 if score >= self.thr else 0
-            if self.streak[mac] >= ML_CONSECUTIVE:
-                return {"kind": "scan_arp" if f[0] >= f[1] else "scan_targets",
-                        "anomaly": round(score, 2), "ts": now,
+            score = float(self.model.predict_proba(pd.DataFrame([f], columns=FEATS)[self.feats])[0, 1])
+            self.streak[mac] = self.streak[mac] + 1 if score >= self.thr and max(f[0], f[1]) >= ML_MIN_SIGNAL else 0
+            if self.streak[mac] >= ML_CONSECUTIVE and now - self.last_alert.get(mac, -1e9) >= ML_REALERT_SECS:
+                self.last_alert[mac] = now
+                kind = "scan_arp" if f[0] >= f[1] else "scan_targets"
+                # Target-only scans stay supporting evidence (low anomaly), as in the rule path.
+                anomaly = score if kind == "scan_arp" else min(score, 0.3)
+                return {"kind": kind,
+                        "anomaly": round(anomaly, 2), "ts": now,
                         "evidence": {**ev, "ml_score": round(score, 2)}}
 
         thr = self.cfg["arp_threshold"]

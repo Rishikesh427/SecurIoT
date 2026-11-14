@@ -5,6 +5,7 @@ securiot_ml/detect.py
 securiot_ml/digest.py
 securiot_ml/explain.py
 securiot_ml/kev.py
+securiot_ml/model.py
 securiot_ml/rules.py
 securiot_ml/score.py
 securiot_ml/vendors.py
@@ -12,6 +13,7 @@ securiot_ml.egg-info/PKG-INFO
 securiot_ml.egg-info/SOURCES.txt
 securiot_ml.egg-info/dependency_links.txt
 securiot_ml.egg-info/top_level.txt
+tests/test_assess.py
 tests/test_detect.py
 tests/test_explain.py
 tests/test_kev.py
