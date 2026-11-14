@@ -1,8 +1,23 @@
 import time, collections
+import pathlib
+
+from .model import Window
+
+try:
+    import joblib
+    import pandas as pd
+except ImportError:          # no ML deps: threshold rules only
+    joblib = pd = None
+
+MODEL_PATH = pathlib.Path(__file__).resolve().parent.parent / "data" / "scan_model.joblib"
 
 DEFAULTS = {"arp_threshold": 30, "pair_threshold": 20, "window": 10, "warmup": 30}
 MIN_SAFE = {"arp_threshold": 10, "pair_threshold": 8}  # cloud policy can't go below these
+ML_MIN_THRESHOLD = 0.9    # cloud policy can't lower the ML alert score below this
+ML_DEFAULT_THRESHOLD = 0.95
+ML_CONSECUTIVE = 2        # consecutive over-threshold windows before alerting
 TELNET_PORTS = {23, 2323}
+
 
 class Detector:
     def __init__(self, policy=None, ignore=(), baselines=None):
@@ -12,6 +27,15 @@ class Detector:
         self.t0 = time.time()
         self.arp = collections.defaultdict(collections.deque)
         self.pairs = collections.defaultdict(collections.deque)
+        self.win = collections.defaultdict(Window)
+        self.streak = collections.defaultdict(int)
+        self.model, self.feats, self.thr = None, None, ML_DEFAULT_THRESHOLD
+        if joblib is not None:
+            try:
+                b = joblib.load(MODEL_PATH)
+                self.model, self.feats, self.thr = b["model"], b["feats"], b["threshold"]
+            except Exception:
+                pass          # no model file: falls back to the threshold rules
         if policy:
             self.update_policy(policy)
 
@@ -20,6 +44,8 @@ class Detector:
             if k in p:
                 self.cfg[k] = max(floor, int(p[k]))
         self.ignore |= {m.upper() for m in p.get("protected", [])}
+        if "ml_threshold" in p:
+            self.thr = max(ML_MIN_THRESHOLD, float(p["ml_threshold"]))
 
     def _trim(self, dq, now):
         while dq and now - dq[0][0] > self.cfg["window"]:
@@ -40,11 +66,23 @@ class Detector:
         self._trim(p, now)
         n_arp, distinct = len(a), len({x[1] for x in p})
         ev = {"arp_in_window": n_arp, "distinct_targets": distinct}
+
+        f = self.win[mac].add(now, arp, pairs, nbytes)   # keep ML features current
+
         hits = sorted(set(decoy_hits))
         if hits:   # fires on a single hit
             top = 1.0 if any(h in TELNET_PORTS for h in hits) else 0.9
             return {"kind": "decoy_touch", "anomaly": top, "ts": now,
                     "evidence": {**ev, "decoy_ports": hits}}
+
+        if self.model is not None:
+            score = float(self.model.predict_proba(pd.DataFrame([f], columns=self.feats))[0, 1])
+            self.streak[mac] = self.streak[mac] + 1 if score >= self.thr else 0
+            if self.streak[mac] >= ML_CONSECUTIVE:
+                return {"kind": "scan_arp" if f[0] >= f[1] else "scan_targets",
+                        "anomaly": round(score, 2), "ts": now,
+                        "evidence": {**ev, "ml_score": round(score, 2)}}
+
         thr = self.cfg["arp_threshold"]
         if n_arp >= thr:
             return {"kind": "scan_arp", "ts": now, "evidence": ev,
