@@ -8,6 +8,7 @@ import { DeviceDetail } from "./components/DeviceDetail";
 import { DeviceList } from "./components/DeviceList";
 import { Login } from "./components/Login";
 import { Logo } from "./components/Logo";
+import { StorageBadge } from "./components/StorageBadge";
 import { SettingsView } from "./components/SettingsView";
 import { AttentionList } from "./components/AttentionList";
 import { FixSheet } from "./components/FixSheet";
@@ -131,7 +132,9 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
       };
       flash(msg[action]);
     } catch (e) {
-      flash(e instanceof Error ? e.message : "Action failed");
+      const text = e instanceof Error ? e.message : "Action failed";
+      // Say it in the dashboard's words: "learning mode" is "automatic protection off".
+      flash(/learning mode/i.test(text) ? "Turn on automatic protection first, then isolate." : text);
     } finally {
       setBusy(false);
     }
@@ -172,6 +175,10 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
     setFixing(null);
     if (kind === "turn_on_protection") await setArmed(true).then(() => flash("Automatic protection is on"));
     else if (kind === "isolate" && issue.mac) await act("quarantine", issue.mac);
+    else if (kind === "protect_and_isolate" && issue.mac) {
+      await setArmed(true);
+      await act("quarantine", issue.mac);
+    }
     else if (kind === "restore" && issue.mac) await act("restore", issue.mac);
   }
 
@@ -198,6 +205,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
                 Restore all
               </Button>
             )}
+            <StorageBadge />
             <Button variant="plain" className="h-8 px-3" onClick={() => setMuted((m) => !m)}>
               {muted ? "Sound off" : "Sound on"}
             </Button>

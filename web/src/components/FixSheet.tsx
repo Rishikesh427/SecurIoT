@@ -65,7 +65,7 @@ export function FixSheet({
 
           <div className="flex flex-col gap-2">
             {issue.action && (
-              <Button variant={issue.action.kind === "isolate" ? "destructive" : "primary"} className="h-11 w-full" disabled={busy} onClick={() => onAction(issue)}>
+              <Button variant={issue.action.kind === "isolate" || issue.action.kind === "protect_and_isolate" ? "destructive" : "primary"} className="h-11 w-full" disabled={busy} onClick={() => onAction(issue)}>
                 {issue.action.label}
               </Button>
             )}

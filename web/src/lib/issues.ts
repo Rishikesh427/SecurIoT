@@ -5,7 +5,7 @@ import { isContained, shortLabel, toMs } from "./format";
 import { cleanupSteps, isIncident } from "./incident";
 import type { Severity } from "./severity";
 
-export type FixAction = "turn_on_protection" | "isolate" | "restore";
+export type FixAction = "turn_on_protection" | "isolate" | "protect_and_isolate" | "restore";
 
 export interface Issue {
   id: string; // stable, so "mark as done" sticks
@@ -61,7 +61,8 @@ export function deriveIssues(
       why: "An infected device can try to break into your other devices or spy on your network.",
       steps: ["Isolate it now to cut it off.", "Turn on automatic protection so this is handled for you next time.", ...cleanupSteps(d)],
       mac: e.mac,
-      action: opts.canAct ? { kind: "isolate", label: "Isolate now" } : undefined,
+      // The API refuses containment while protection is off, so turn it on first.
+      action: !opts.canAct ? undefined : policy?.learning_mode ? { kind: "protect_and_isolate", label: "Turn on protection and isolate" } : { kind: "isolate", label: "Isolate now" },
       technical: [`event: ${e.kind}`, `would_have: ${e.would_have.join(", ")}`, `event id: ${e.id}`],
     });
   }

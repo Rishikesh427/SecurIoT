@@ -16,7 +16,7 @@ class Database:
 
     def ready(self):
         with self.connect() as conn:
-            return conn.execute("SELECT version FROM schema_migrations WHERE version = 1").fetchone() is not None
+            return conn.execute("SELECT version FROM schema_migrations WHERE version = 2").fetchone() is not None
 
     def user_by_name(self, username):
         with self.connect() as conn:
@@ -62,22 +62,30 @@ class Database:
 
     def sync(self):
         with self.connect() as conn:
-            conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ')
-            policy = conn.execute('SELECT * FROM policy WHERE id = true').fetchone()
-            if policy is None:
+            # One statement gives policy and pending commands the same snapshot.
+            row = conn.execute("""
+                SELECT jsonb_build_object(
+                    'etag', revision::text,
+                    'policy', jsonb_build_object('learning_mode', learning_mode,
+                        'protected_macs', protected_macs, 'ladder', ladder),
+                    'commands', (SELECT COALESCE(jsonb_agg(jsonb_strip_nulls(
+                        jsonb_build_object('id', c.id, 'created_at', c.created_at,
+                            'action', c.action, 'mac', c.mac)) ORDER BY c.created_at, c.id), '[]'::jsonb)
+                        FROM commands c WHERE c.status = 'pending')
+                ) AS payload FROM policy WHERE id = true
+            """).fetchone()
+            if row is None:
                 raise HTTPException(503, 'Policy not initialized')
-            commands = conn.execute("SELECT id, created_at, action, mac FROM commands WHERE status = 'pending' ORDER BY created_at, id").fetchall()
-            for command in commands:
-                if command['mac'] is None:
-                    del command['mac']
-            return {'etag': str(policy['revision']), 'policy': {k: policy[k] for k in ('learning_mode', 'protected_macs', 'ladder')}, 'commands': commands}
+            return row['payload']
 
     def ack(self, command_id, ack):
         with self.connect() as conn:
             row = conn.execute('SELECT status, ack_ts, detail FROM commands WHERE id = %s FOR UPDATE', (command_id,)).fetchone()
             if row is None:
                 raise HTTPException(404, 'Command not found')
-            if row['status'] != 'pending':
+            # A policy change cannot recall a command already delivered to an
+            # agent. Preserve a late report of what actually happened.
+            if row['status'] not in ('pending', 'cancelled'):
                 if (row['status'], row['ack_ts'], row['detail']) != (ack.status, ack.ts, ack.detail):
                     raise HTTPException(409, 'Command already acknowledged differently')
                 return
@@ -92,3 +100,51 @@ class Database:
         from api.telemetry import Event
         with self.connect() as conn:
             return [Event.model_validate(row).model_dump(mode='json') for row in conn.execute('SELECT * FROM events ORDER BY ts DESC, id DESC LIMIT %s OFFSET %s', (limit, offset))]
+
+    def get_policy(self):
+        with self.connect() as conn:
+            row = conn.execute('SELECT * FROM policy WHERE id=true').fetchone()
+            if row is None:
+                raise HTTPException(503, 'Policy not initialized')
+            return {'etag': str(row['revision']), 'policy': {k:row[k] for k in ('learning_mode','protected_macs','ladder')}}
+
+    def put_policy(self, body, if_match=None):
+        with self.connect() as conn:
+            row = conn.execute('SELECT * FROM policy WHERE id=true FOR UPDATE').fetchone()
+            if row is None:
+                raise HTTPException(503, 'Policy not initialized')
+            if if_match is not None and if_match != '"' + str(row['revision']) + '"':
+                raise HTTPException(412, 'Policy changed; reload before saving')
+            data = body.model_dump()
+            changed = any(row[k] != v for k,v in data.items())
+            if changed:
+                conn.execute('UPDATE policy SET learning_mode=%s, protected_macs=%s, ladder=%s, revision=revision+1, updated_at=now() WHERE id=true',
+                             (body.learning_mode, Jsonb(body.protected_macs), Jsonb(data['ladder'])))
+                # Never retain unsafe pending containment for later re-arming.
+                conn.execute("""UPDATE commands SET status='cancelled', ack_ts=now(),
+                    detail='Cancelled by policy change before acknowledgement'
+                    WHERE status='pending' AND action IN ('block_wan','quarantine')
+                    AND (%s OR mac::text = ANY(%s) OR NOT (%s::jsonb ->> action)::boolean)""",
+                    (body.learning_mode, body.protected_macs, Jsonb(data['ladder'])))
+            return {'etag':str(row['revision'] + int(changed)), 'policy':data}
+
+    def create_command(self, body, command_id):
+        from api.control import check_action, check_retry
+        with self.connect() as conn:
+            # Same lock as policy writes makes validation and enqueue atomic.
+            row = conn.execute('SELECT * FROM policy WHERE id=true FOR UPDATE').fetchone()
+            if row is None:
+                raise HTTPException(503, 'Policy not initialized')
+            existing = conn.execute('SELECT id,created_at,action,mac FROM commands WHERE id=%s', (command_id,)).fetchone()
+            if existing:
+                check_retry(existing, body)
+                if existing['mac'] is None:
+                    del existing['mac']
+                return existing
+            known = body.mac is None or conn.execute('SELECT 1 FROM devices WHERE mac=%s', (body.mac,)).fetchone() is not None
+            check_action(body, row, known)
+            command = conn.execute('INSERT INTO commands(id,action,mac) VALUES (%s,%s,%s) RETURNING id,created_at,action,mac',
+                                   (command_id, body.action, body.mac)).fetchone()
+            if command['mac'] is None:
+                del command['mac']
+            return command

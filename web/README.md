@@ -39,23 +39,25 @@ VITE_USE_MOCK=false npm run dev
 
 The dev server proxies `/api/*` to `http://localhost:8000` with the prefix stripped, the same way Caddy does, so there's no CORS setup. Log in with the judge account.
 
-**Docker (Person B's setup):** build the bundle, point Caddy at it, recreate Caddy:
+**Docker:** `compose.yaml` builds this dashboard with `web/Dockerfile` and serves it with Caddy, so from the repo root:
 
 ```bash
-cd web && npm run build          # real API at /api; nothing secret goes in the bundle
-# in the repo-root .env:  WEB_BUNDLE_PATH=./web/dist
-docker compose up -d --force-recreate caddy
+docker compose up --build -d     # dashboard at http://localhost, API at /api
 ```
+
+Build settings come from the root `.env` (`VITE_API_URL`, default `/api`; `VITE_MOCK_MODE`, default `false`). After changing the dashboard, rebuild with `docker compose up --build -d caddy`.
 
 **Settings** (`web/.env`, all optional):
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `VITE_API_URL` (or `VITE_API_BASE_URL`) | `/api` | API base |
-| `VITE_USE_MOCK` | `true` in dev, `false` in builds | Force mock on or off |
+| `VITE_USE_MOCK` or `VITE_MOCK_MODE` | `true` in dev, `false` in builds | Force mock on or off |
 | `VITE_FEED_URL` | unset | Agent's local API (e.g. `http://10.42.0.1:8787`) for the live camera feed. Unset, the camera tile follows the device status |
 
 Never put keys in `web/.env`. Everything there ends up in the public bundle.
+
+The header shows where the API keeps data (`GET /storage`): **Tiger Data**, or **Demo storage** when the API fell back to temporary in-memory storage.
 
 **Routes not built yet:** the dashboard checks once per load. Without `/policy`, the protection switch and Settings say "not available yet"; without `/actions`, Isolate/Restore are hidden; without `/audit` and `/audit/run`, the audit log and digest say so. Everything else (devices, activity, risk, containment) works from `/devices` and `/events`. A 401 signs you out.
 

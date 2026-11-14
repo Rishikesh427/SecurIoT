@@ -1,11 +1,13 @@
 // One client for both modes. Mock mode (in-browser, no backend) is the default
 // for `npm run dev`; production builds talk to the API unless VITE_USE_MOCK=true.
 import { mockServer } from "../mock/mockServer";
-import type { ActionRequest, AuditEntry, AuditRun, Command, Device, FeedMeta, Policy, SecurEvent, TokenResponse } from "../types";
+import type { ActionRequest, AuditEntry, AuditRun, Command, Device, FeedMeta, Policy, SecurEvent, StorageStatus, TokenResponse } from "../types";
 
 const env = import.meta.env;
 
-export const USE_MOCK = env.VITE_USE_MOCK != null ? env.VITE_USE_MOCK !== "false" : env.DEV;
+// VITE_MOCK_MODE is the name the Docker build (web/Dockerfile) passes; VITE_USE_MOCK also works.
+const mockSetting = env.VITE_USE_MOCK ?? env.VITE_MOCK_MODE;
+export const USE_MOCK = mockSetting != null ? mockSetting === "true" : env.DEV;
 /** Caddy serves the API under /api (prefix stripped); `npm run dev` proxies /api the same way. */
 export const API_BASE = (env.VITE_API_URL ?? env.VITE_API_BASE_URL ?? "/api").replace(/\/$/, "");
 /** The camera feed lives only on the agent (e.g. http://10.42.0.1:8787). Unset = no feed polling. */
@@ -84,6 +86,9 @@ export const api = {
     USE_MOCK ? mockServer.postAction(req) : http<Command>("/actions", { method: "POST", body: JSON.stringify(req) }),
   audit: () => (USE_MOCK ? mockServer.getAudit() : http<AuditEntry[]>("/audit")),
   runAudit: () => (USE_MOCK ? mockServer.runAudit() : http<AuditRun>("/audit/run", { method: "POST" })),
+
+  /** Where the API keeps data: Tiger Data, or temporary demo storage. Public route. */
+  storage: () => (USE_MOCK ? mockServer.getStorage() : http<StorageStatus>("/storage")),
 
   /** Which write routes the server supports so far. */
   capabilities: async () =>

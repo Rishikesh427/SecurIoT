@@ -1,7 +1,7 @@
 // In-browser stand-in for the cloud API (and the agent's feed meta). Speaks the
 // /contract shapes and plays the scripted QR attack from the plan's LIVE DEMO,
 // so the dashboard works with no hardware or backend.
-import type { ActionRequest, AuditEntry, AuditRun, Command, Device, FeedMeta, Policy, SecurEvent, TokenResponse } from "../types";
+import type { ActionRequest, AuditEntry, AuditRun, Command, Device, FeedMeta, Policy, SecurEvent, StorageStatus, TokenResponse } from "../types";
 import { CAMERA_MAC, defaultPolicy, fixtureDevices, fixtureEvents } from "./fixtures";
 
 type Enforcement = "block_wan" | "quarantine";
@@ -149,8 +149,10 @@ export const mockServer = {
 
     const targets = req.action === "restore_all" ? state.devices : [device(req.mac ?? "")].filter(Boolean) as Device[];
     if (!targets.length) throw new Error("Unknown device");
-    if ((req.action === "quarantine" || req.action === "block_wan") && state.policy.protected_macs.includes(targets[0].mac)) {
-      throw new Error("Protected devices can't be isolated");
+    if (req.action === "quarantine" || req.action === "block_wan") {
+      // Same rules as the API's POST /actions (409s).
+      if (state.policy.learning_mode) throw new Error("Turn off learning mode before requesting containment");
+      if (state.policy.protected_macs.includes(targets[0].mac)) throw new Error("Device is protected");
     }
 
     // The agent picks the command up on its next /sync and acks it.
@@ -184,6 +186,10 @@ export const mockServer = {
         "Change the camera's default password, keep it blocked from the internet, and consider replacing it.",
       ].join("\n\n"),
     };
+  },
+
+  async getStorage(): Promise<StorageStatus> {
+    return { mode: "mock", demo_storage: true, persistent: false, badge: "Demo data" };
   },
 
   async getFeedMeta(mac: string): Promise<FeedMeta> {

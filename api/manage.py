@@ -13,9 +13,11 @@ def migrate(conn):
     conn.execute("SELECT pg_advisory_xact_lock(714281004)")
     conn.execute("CREATE SCHEMA IF NOT EXISTS securiot")
     conn.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version integer PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())")
-    if not conn.execute("SELECT 1 FROM schema_migrations WHERE version = 1").fetchone():
-        conn.execute(Path(__file__).with_name("migrations").joinpath("001_platform.sql").read_text())
-        conn.execute("INSERT INTO schema_migrations (version) VALUES (1)")
+    for path in sorted(Path(__file__).with_name('migrations').glob('*.sql')):
+        version = int(path.name.split('_', 1)[0])
+        if not conn.execute('SELECT 1 FROM schema_migrations WHERE version = %s', (version,)).fetchone():
+            conn.execute(path.read_text())
+            conn.execute('INSERT INTO schema_migrations (version) VALUES (%s)', (version,))
 
 
 def seed_judge(conn, username, password):

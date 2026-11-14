@@ -82,6 +82,16 @@ export interface AuditRun {
   summary: string;
 }
 
+/** GET /storage: whether data is persisted in Tiger Data or temporary demo storage. */
+export interface StorageStatus {
+  mode: "postgres" | "memory" | "mock";
+  demo_storage?: boolean;
+  persistent?: boolean;
+  badge?: string;
+  reason?: string | null;
+  recovery?: string | null;
+}
+
 // Agent-only feed metadata.
 export interface FeedMeta {
   last_ts: string | null;
