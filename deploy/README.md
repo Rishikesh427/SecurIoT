@@ -1,4 +1,4 @@
-# Person B: hours 1–16
+# Person B: hours 1–20
 
 The API/web hosting runs locally, without a paid hosting service. FastAPI runs in one
 container; Caddy serves a static bundle and proxies the API in another.
@@ -159,7 +159,9 @@ Included: health/readiness, OpenAPI docs, CORS allowlist, Docker/Caddy, SPA fall
 contract/fixtures/inventory, database schema, judge seed, JWT login and identity.
 H8–12 adds ingest, sync, acknowledgement, devices, and events. Set AGENT_API_KEY
 in api/.env for agent requests (X-API-Key header). Dashboard reads use Bearer JWT.
-H12–16 adds command creation, policy editing, and demo storage. See
+H12–16 adds command creation, policy editing, and demo storage. H16–20 adds
+audit lifecycle tracking, restore controls, seeded digest history, and asynchronous
+event explanations. See
 contract/README.md for retry and concurrency semantics. Audit endpoints, the
 React UI, and optional camera-frame relay remain later work; hardware enforcement
 stays in the agent.
@@ -189,6 +191,30 @@ re-arming never revives them. Already-delivered commands cannot be recalled by
 the API. The agent must enforce its safeguards at execution. A late acknowledgement
 records the actual result even if the queue entry was cancelled meanwhile.
 Migration 002 permits the internal cancelled state; run init-db before deployment.
+
+## Audit, restore, and event explanations
+
+GET `/api/audit` returns the newest 1000 lifecycle entries. Migration 003
+backfills existing commands and adds four rows whose actor is `seeded-demo`.
+POST `/api/actions` creates one `requested` row per idempotency key; `/ack`
+changes it to `applied` or `failed`. Restore and Restore all are queued commands:
+neither the API nor dashboard changes device state before acknowledgement.
+
+POST `/api/audit/run` passes that history to Person C's
+`ml.securiot_ml.digest.digest(history)` and expects a string or
+`{summary: string}`. The current teammate file is empty, so the endpoint returns
+503 until the function lands; it does not fabricate a digest.
+
+GET `/api/events` always includes `explanation` and `explanation_status`.
+Without both GEMINI_API_KEY and GEMINI_MODEL, it returns Person C's template with
+status `template`. With both configured, the first read returns that template as
+`pending` while a bounded worker calls Person C's `explain(event, device)` away
+from the request path. Later reads return the event-ID-cached result as `ready`.
+Gemini failure also caches the template, so ingestion and dashboard reads remain
+available. Gemini never decides or performs containment.
+
+After pulling these changes, run `python -m api.manage init-db` before restarting
+the API, then rebuild Compose. The API requires schema migration version 3.
 
 ## Demo fallback and badge
 

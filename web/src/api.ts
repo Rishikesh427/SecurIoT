@@ -44,9 +44,11 @@ export function createApiClient({ fetchImpl = fetch, onSessionExpired = () => {}
       throw new ApiError('Your session has expired. Please sign in again.', 401);
     }
     if (!response.ok) {
+      let detail = '';
+      try { const body = await response.clone().json(); if (typeof body?.detail === 'string') detail = body.detail; } catch { /* non-JSON error */ }
       const message = response.status === 401 ? 'Username or password is incorrect.'
         : response.status === 503 ? 'The service is temporarily unavailable. Please try again.'
-        : `Request failed (${response.status}). Please try again.`;
+        : detail || `Request failed (${response.status}). Please try again.`;
       throw new ApiError(message, response.status);
     }
     return response.status === 204 ? null as T : response.json();

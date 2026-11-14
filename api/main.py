@@ -59,10 +59,13 @@ def create_app(settings=None, database=None):
     async def lifespan(app):
         app.state.settings = settings or Settings.load()
         from api.storage import Storage
+        from api.explanations import ExplanationService
         app.state.db = database if database is not None else Storage(Database(app.state.settings), app.state.settings)
+        app.state.explanations = ExplanationService()
         try:
             yield
         finally:
+            app.state.explanations.close()
             if isinstance(app.state.db, Storage):
                 app.state.db.close()
 
@@ -127,6 +130,8 @@ def create_app(settings=None, database=None):
     app.include_router(router(current_user))
     from api.control import router as control_router
     app.include_router(control_router(current_user))
+    from api.audit import router as audit_router
+    app.include_router(audit_router(current_user))
     return app
 
 

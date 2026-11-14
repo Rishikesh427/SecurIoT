@@ -9,6 +9,8 @@ ap.add_argument("--holdout", default="")
 ap.add_argument("--threshold", type=float, default=0.95)
 ap.add_argument("--min-signal", type=int, default=8)  # weak sweep rows are ambiguous, not positives
 a = ap.parse_args()
+if a.threshold is not None and not 0 <= a.threshold <= 1:
+    ap.error("--threshold must be between 0 and 1")
 
 df = load(glob.glob("ml/data/win_*.parquet"))
 weak = (df.label == 1) & (df.arp < a.min_signal) & (df.targets < a.min_signal)

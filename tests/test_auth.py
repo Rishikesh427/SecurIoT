@@ -35,9 +35,12 @@ def api():
         yield client, db
 
 
-def test_login_and_authenticated_identity(api):
+@pytest.mark.parametrize(("username", "role"), [("judge", "judge"), ("admin", "admin")])
+def test_login_and_authenticated_identity(api, username, role):
     client, db = api
-    result = client.post("/auth/login", json={"username": "judge", "password": PASSWORD})
+    db.user["username"] = username
+    db.user["role"] = role
+    result = client.post("/auth/login", json={"username": username, "password": PASSWORD})
     assert result.status_code == 200
     assert result.headers["Cache-Control"] == "no-store"
     body = result.json()
@@ -46,7 +49,7 @@ def test_login_and_authenticated_identity(api):
     assert claims["sub"] == str(db.user["id"])
     me = client.get("/auth/me", headers={"Authorization": "Bearer " + body["access_token"]})
     assert me.status_code == 200
-    assert me.json() == {"id": str(db.user["id"]), "username": "judge", "role": "judge"}
+    assert me.json() == {"id": str(db.user["id"]), "username": username, "role": role}
     assert "password" not in result.text and "password_hash" not in me.text
 
 

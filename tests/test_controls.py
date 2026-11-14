@@ -152,6 +152,22 @@ def test_automatic_fallback_cold_login_badge_and_latching():
     restarted.close()
 
 
+def test_admin_account_can_read_dashboard():
+    db = MemoryDatabase(CONFIG)
+    user = db.user_by_name('judge')
+    db.users[str(user['id'])]['role'] = 'admin'
+    try:
+        with TestClient(create_app(CONFIG, db)) as client:
+            login = client.post('/auth/login', json={'username':'judge','password':PASSWORD})
+            assert login.status_code == 200
+            headers = {'Authorization':'Bearer '+login.json()['access_token']}
+            assert client.get('/auth/me', headers=headers).json()['role'] == 'admin'
+            for route in ('/devices', '/events', '/audit', '/policy'):
+                assert client.get(route, headers=headers).status_code == 200
+    finally:
+        db.close()
+
+
 def test_ambiguous_write_is_not_replayed_into_memory():
     storage = Storage(DownDatabase(),CONFIG)
     with pytest.raises(HTTPException) as error:

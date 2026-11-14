@@ -21,7 +21,12 @@ export async function mockFetch(path: string, options: RequestInit = {}): Promis
     const query = new URLSearchParams(path.split('?')[1]);
     const offset = Math.max(0, Number(query.get('offset') || 0));
     const limit = Math.min(1000, Math.max(1, Number(query.get('limit') || 100)));
-    return json([...fixtures.events].sort((a,b) => b.ts.localeCompare(a.ts)).slice(offset, offset + limit));
+    return json([...fixtures.events].sort((a,b) => b.ts.localeCompare(a.ts)).slice(offset, offset + limit).map(event => ({...event,
+      explanation:{plain_language:`A simulated device reported ${event.kind} activity.`,recommended_next_step:'Review the fixture evidence.'},
+      explanation_status:'template'})));
   }
+  if (route === '/audit') return json([
+    {id:'00000000-0000-4000-8000-000000000304',ts:'2026-11-14T12:04:00Z',actor:'seeded-demo',action:'restore',outcome:'applied'},
+    {id:'00000000-0000-4000-8000-000000000303',ts:'2026-11-14T12:03:00Z',actor:'seeded-demo',action:'quarantine',outcome:'would_have'}]);
   return json({detail:'Mock route not found'}, 404);
 }

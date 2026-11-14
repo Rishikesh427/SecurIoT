@@ -109,6 +109,7 @@ def router(current_user):
     def events(request: Request, limit: int = 100, offset: int = 0):
         if not 1 <= limit <= 1000 or offset < 0:
             raise HTTPException(422, 'limit must be 1–1000 and offset nonnegative')
-        return request.app.state.db.events(limit, offset)
+        events = request.app.state.db.events(limit, offset)
+        return request.app.state.explanations.decorate(events, request.app.state.db.devices())
 
     return routes
