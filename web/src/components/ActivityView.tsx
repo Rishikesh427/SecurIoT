@@ -3,7 +3,7 @@ import { api, isMissing } from "../api/client";
 import { usePoll } from "../hooks/usePoll";
 import { actionLabel, clock, isContained } from "../lib/format";
 import type { ActionName, AuditEntry, Device, SecurEvent } from "../types";
-import { ActivityList } from "./ActivityList";
+import { ActivityExplorer } from "./ActivityExplorer";
 import { Button, Card, SectionTitle, Tag } from "./ui";
 
 const UNDOABLE = new Set(["quarantine", "block_wan"]);
@@ -130,7 +130,11 @@ export function ActivityView({
 
       <div>
         <SectionTitle>All activity</SectionTitle>
-        <ActivityList events={events} devices={devices} onSelect={onSelect} />
+        <ActivityExplorer
+          events={events}
+          devices={devices}
+          onSelect={onSelect}
+        />
       </div>
     </div>
   );
