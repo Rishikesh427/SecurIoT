@@ -39,7 +39,7 @@ export function StatusBanner({
       ? critical[0].summary
       : tone === "attention"
         ? "Nothing is under attack. Fixing these makes your network safer."
-        : "Nothing needs your attention. SecurIoT is watching every device.";
+        : "Nothing needs your attention. CasaWarden is watching every device.";
 
   return (
     <section

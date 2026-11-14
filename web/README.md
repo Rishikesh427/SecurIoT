@@ -1,4 +1,4 @@
-# SecurIoT dashboard (`/web`)
+# CasaWarden dashboard (`/web`)
 
 React + Vite + Tailwind. Person D's frontend from the v3.2 plan.
 

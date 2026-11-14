@@ -202,7 +202,7 @@ export const mockServer = {
     return {
       summary: [
         contained ? `${contained} threat${contained > 1 ? "s" : ""} contained. Contained, not fixed.` : `${high} high-risk device${high === 1 ? "" : "s"} on your network.`,
-        `Your living room camera is end-of-life and accepts its default password. It can't be patched, so SecurIoT watches it closely and isolates it whenever it misbehaves. Current risk ${cam.risk} out of 100.`,
+        `Your living room camera is end-of-life and accepts its default password. It can't be patched, so CasaWarden watches it closely and isolates it whenever it misbehaves. Current risk ${cam.risk} out of 100.`,
         "Change the camera's default password, keep it blocked from the internet, and consider replacing it.",
       ].join("\n\n"),
     };
