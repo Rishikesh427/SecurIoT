@@ -4,6 +4,27 @@
   "title": "SecurIoT v3.2 shared contract",
   "$ref": "#/$defs/Ingest",
   "$defs": {
+    "LoginRequest": {
+      "type": "object", "required": ["username", "password"],
+      "properties": {
+        "username": {"type": "string", "minLength": 1, "maxLength": 100},
+        "password": {"type": "string", "minLength": 1, "maxLength": 1024}
+      }
+    },
+    "TokenResponse": {
+      "type": "object", "additionalProperties": false, "required": ["access_token", "token_type", "expires_in"],
+      "properties": {
+        "access_token": {"type": "string"}, "token_type": {"const": "bearer"},
+        "expires_in": {"type": "integer", "minimum": 60, "maximum": 86400}
+      }
+    },
+    "UserResponse": {
+      "type": "object", "additionalProperties": false, "required": ["id", "username", "role"],
+      "properties": {
+        "id": {"type": "string", "format": "uuid"}, "username": {"type": "string"},
+        "role": {"enum": ["judge", "admin"]}
+      }
+    },
     "Mac": {"type": "string", "pattern": "^([0-9a-f]{2}:){5}[0-9a-f]{2}$"},
     "ActionName": {"enum": ["block_wan", "quarantine", "restore", "restore_all"]},
     "Device": {

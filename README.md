@@ -45,7 +45,7 @@ Time to containment is on screen. No guesswork.
 
 - **Risk score 0-100:** known exploited CVEs (+30), end-of-life firmware (+20), exposed ports (+15), cloud-only (+10), default credentials (+25), live anomalies (up to +40).
 - **Reasoning:** Gemini classifies devices and writes the risk analysis, with a rules-only fallback so it never goes blind.
-- **Platform:** local Docker Compose (FastAPI + Caddy), with an optional free Cloudflare Quick Tunnel for public HTTPS. Tiger Data integration is a later milestone.
+- **Platform:** local Docker Compose (FastAPI + Caddy), with an optional free Cloudflare Quick Tunnel for public HTTPS. Tiger Data tables and JWT judge login are implemented.
 
 ```
 Agent → /ingest → DB → Scorer + Baseline → Gemini
@@ -54,13 +54,13 @@ Agent → /ingest → DB → Scorer + Baseline → Gemini
 
 ## Try it
 
-For the implemented Person B H1–4 foundation, follow [platform setup](deploy/README.md).
+For the implemented Person B H1–8 platform and login, follow [platform setup](deploy/README.md).
 Shared schemas, demo fixtures, and hardware placeholders live in [contract](contract/README.md).
 The commands below describe later tracks and are not all implemented yet.
 
 ```bash
 cd ml && pip install -r requirements.txt && pytest -q    # scorer tests
-cd api && uvicorn main:app --reload                       # backend
+uvicorn api.main:app --reload                             # backend, from repository root
 cd web && npm install && npm run dev                      # dashboard
 sudo python agent/agent.py --api $API_URL --key $AGENT_API_KEY
 ```

@@ -7,7 +7,10 @@ import yaml
 from fastapi.testclient import TestClient
 from jsonschema import Draft202012Validator, FormatChecker
 
-from api.main import app
+from api.main import create_app
+from api.settings import Settings
+
+app = create_app(Settings("postgresql://unused", "test-secret-" * 4))
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = json.loads((ROOT / "contract/schemas.json").read_text())
@@ -46,7 +49,7 @@ def test_action_target_rules():
 
 def test_api_health_docs_and_unimplemented_routes():
     with TestClient(app, root_path="/api") as client:
-        assert client.get("/healthz").json()["stage"] == "platform-h1-4"
+        assert client.get("/healthz").json()["stage"] == "platform-h4-8"
         assert "/api/openapi.json" in client.get("/docs").text
         assert client.post("/ingest", json=FIXTURES).status_code == 404
         assert client.get("/openapi.json").status_code == 200

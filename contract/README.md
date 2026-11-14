@@ -27,6 +27,9 @@ prefixes. `/api/docs` describes only implemented routes, not promised features.
 | Route | Request → response | Authorization / milestone |
 |---|---|---|
 | GET /healthz | → status, service, stage | Public; implemented H1–4 |
+| GET /readyz | → {status, database} | Public; implemented H4–8 |
+| POST /auth/login | LoginRequest → TokenResponse | Public; implemented H4–8 |
+| GET /auth/me | → UserResponse | Bearer JWT; implemented H4–8 |
 | POST /ingest | Ingest → {accepted_devices, accepted_events} counts | X-API-Key = AGENT_API_KEY; H8–12 |
 | GET /sync?etag= | → Sync, or 304 if unchanged and no pending commands | X-API-Key; H8–12 |
 | POST /commands/{id}/ack | Ack → 204 | X-API-Key; H8–12 |
@@ -38,8 +41,10 @@ prefixes. `/api/docs` describes only implemented routes, not promised features.
 | POST /audit/run | empty → {summary: string} | Bearer JWT; H16–20 |
 | GET /audit | → AuditEntry[] newest first | Bearer JWT; H16–20 |
 
-Cloud auth is planned, not implemented. Unknown business routes return 404 rather
-than pretend to ingest or enforce. Login and persistence belong to H4–8. A command
+JWT login and the database schema are implemented. Unknown business routes return
+404 rather than pretend to ingest or enforce. Login accepts JSON username/password,
+returns a bearer access token (60 minutes by default), and /auth/me returns identity.
+Missing/invalid credentials return 401; unavailable storage returns 503. A command
 is pending until acknowledged; issuing it must not imply successful enforcement.
 Repeated acknowledgements should be idempotent. Errors use FastAPI `detail`.
 Sync etag is an opaque policy revision; pending commands must still be delivered
@@ -51,3 +56,7 @@ X-Device-Name, X-Frame-Ts (UTC ISO timestamp), X-Frame-Seq (integer), and identi
 the device by DHCP source IP. GET /feed/{mac} returns image bytes;
 GET /feed/{mac}/meta returns {last_ts: timestamp|null}. Cloud relay is later work.
 Feed tokens and agent keys must never appear in VITE_* variables.
+
+Storage note: events use a Timescale primary key `(id, ts)`. Always retain both
+values on retries. Global UUID deduplication across conflicting timestamps must
+be enforced by the future ingest implementation; this schema does not imply it.
