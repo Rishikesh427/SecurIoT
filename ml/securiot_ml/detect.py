@@ -92,8 +92,8 @@ class Detector:
 
         thr = self.cfg["arp_threshold"]
         if n_arp >= thr:
-            return {"kind": "scan_arp", "ts": now, "evidence": ev,
-                    "anomaly": round(min(1.0, n_arp / (2 * thr) + 0.5), 2)}
+            score = min(1.0, 0.95 + 0.04 * (n_arp / thr - 1))   # 0.95 @ thr, 0.97 @ 1.5x, 0.99 @ 2x
+            return {"kind": "scan_arp", "ts": now, "evidence": ev, "anomaly": round(score, 3)}
         if distinct >= self.cfg["pair_threshold"]:   # supporting only
             return {"kind": "scan_targets", "anomaly": 0.3, "ts": now, "evidence": ev}
         return self._zscore(mac, nbytes, now)
