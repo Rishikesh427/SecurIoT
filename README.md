@@ -4,7 +4,7 @@
 
 A 2026 Bitdefender/NETGEAR study of 10.4 million homes found that smart TVs, smart plugs, and NAS devices make up **67.1% of all observed home vulnerabilities**. Owners can't fix the firmware, and most never see the threat coming.
 
-**SecurIoT fixes the one place you can: the network.**
+**So we asked ourselves: what's the one place we can fix? The network.**
 
 ## What if your router could think?
 
