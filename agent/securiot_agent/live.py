@@ -91,6 +91,7 @@ class LivePump:
         self._routine_dropped = 0
         self.next_poll = 0.0
         self.cloud_failures = 0
+        self.next_upkeep = 0.0
 
     def receive(self, packet):
         try:
@@ -110,6 +111,16 @@ class LivePump:
             pass
         if self.discovery is not None and self.discovery.tick():
             self.next_poll = now  # a device joined or left: upload it right away
+        upkeep = getattr(self.agent.enforcer, "maintain", None)
+        if upkeep is not None and now >= self.next_upkeep:
+            # nl80211 APs have no deny list: re-kick quarantined stations that rejoin.
+            self.next_upkeep = now + 1
+            from .linux_enforcement import EnforcementError
+            try:
+                for mac in upkeep():
+                    print(f"Quarantine: removed {mac} again after it rejoined the Wi-Fi")
+            except (EnforcementError, ValueError) as error:
+                print("Quarantine upkeep failed; firewall drop still applies:", error)
         if self.cloud is not None and now >= self.next_poll:
             errors = self.cloud.tick()
             for error in errors:

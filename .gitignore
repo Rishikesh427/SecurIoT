@@ -18,3 +18,4 @@ ml/data/raw/
 ml/.venv/
 .venv/
 /.pi-wheels/
+/.pi-setup/
