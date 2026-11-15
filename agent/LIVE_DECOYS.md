@@ -1,67 +1,55 @@
-# Model adapter, live capture, and real decoy services
+# Live capture and TCP decoys
 
-## What is implemented
+Reviewed at `332f573` (November 15, 2026). The public `--live` CLI now requires
+real Linux enforcement and discovery configuration. It rejects mock enforcement
+and fixture `--devices`; old two-terminal sniffer examples using those flags are
+no longer valid. Use the [Linux runbook](LINUX_ENFORCEMENT.md) for live startup.
 
-1. The adapter passes new packet activity to C's rule detector, not cumulative
-   10-second totals. The trained-model path uses C's shared Window on outgoing
-   frames and predicts at the training cadence (first outgoing packet per second).
-   It selects and validates the saved feature subset/order against estimator metadata.
-2. `--live IFACE` uses Scapy to feed the same collector/adapter/runtime as replay.
-   Live mode now honors `--model-mode required|auto|rules` and prints model status.
-3. `tools/decoy.py` starts real accept-and-close TCP listeners. It never reads
-   credentials, executes a command, or implements an exploitable Telnet/SMB service.
+The Scapy capture callback feeds live discovery and the shared collector/model/
+runtime. Captured Ethernet source MACs provide attribution; a configured IP-to-MAC
+mapping is not packet-level identity proof.
 
-Model-only binary scan warnings remain advisory. Decoy/strong ARP signals can
-request containment through the existing safeguards. These commands default to
-mock enforcement. For the implemented real Linux backend, manual dashboard actions,
-and physical acceptance steps, see [LINUX_ENFORCEMENT.md](LINUX_ENFORCEMENT.md).
+## Decoy service
 
-## Verify on the current Mac with Docker
+Assign unused decoy IP aliases to the AP first. The listener does not provision
+aliases, routing, DHCP or the hotspot. On the router, in a separate terminal:
 
 ```bash
-agent/.venv/bin/python -m pytest agent/tests ml/tests -q
+sudo agent/.venv/bin/python agent/tools/decoy.py --bind 10.42.0.50 --bind 10.42.0.51 --ports 23 2323 80 445 554 8080
+```
+
+Use your actual subnet/assigned addresses. Add `--decoy-ip 10.42.0.50
+--decoy-ip 10.42.0.51` to the fully configured live-agent command. Those IPs are
+explicit detection destinations; listeners alone do not configure the collector.
+
+The service accepts/closes real TCP connections without collecting credentials,
+executing commands or implementing an exploitable Telnet/SMB service. It rejects
+wildcard/multicast binds and invalid/duplicate ports, and closes previously opened
+listeners if startup later fails. Its JSON log records peer IP/local port. An
+optional `--devices FILE` on the **decoy tool** supplies a labeled configured
+`mapped_mac`; this is separate from the live agent's prohibition on fixture input.
+Unknown peers stay unknown in that mapping.
+
+An outgoing SYN to an explicitly configured decoy can produce `decoy_touch` and
+request containment through automatic safeguards. A legitimate inventory scanner
+can also touch a decoy; this is suspicious activity, not proof of infection.
+Model-only binary scan findings remain advisory.
+
+## Verification
+
+```bash
+agent/.venv/bin/python -m pytest agent/tests/test_decoys_live.py -q
 agent/.venv/bin/python agent/tools/smoke_decoy_capture.py
 ```
 
-The second command creates an internal Docker network and two test containers.
-One opens a real TCP connection to the other's decoy. A real Scapy sniffer on
-that container's `eth0` sees the Ethernet source MAC and produces `decoy_touch`
-through the collector, detector, and safety/runtime path. The test primes its
-clock past warmup and uses rules mode; it verifies real capture/listener plumbing,
-not model accuracy. It removes its containers/network afterwards and never sniffs
-the host network. The separately tested trained path uses the actual saved model.
+The Docker lab creates an internal network/two containers and an actual TCP
+connection. A real Scapy sniffer observes its Ethernet source MAC, passes the
+collector/detector/runtime and requests mock quarantine. It primes warmup and
+uses rules mode through test helpers; it is not the current public live CLI.
+It removes its own containers/network and does not sniff the host network.
 
-## Run on the Linux hotspot later
-
-First configure the AP and assign the unused decoy IP(s) on that interface.
-The service does not create aliases or change network configuration for you.
-Your devices JSON must contain the actual demo MAC/IP bindings. In two terminals:
-
-```bash
-sudo agent/.venv/bin/python agent/tools/decoy.py \
-  --bind 10.42.0.50 --bind 10.42.0.51 \
-  --ports 23 2323 80 445 554 8080 --devices /path/to/devices.json
-```
-
-```bash
-sudo agent/.venv/bin/python agent/agent.py --live ap0 \
-  --devices /path/to/devices.json --decoy-ip 10.42.0.50 \
-  --decoy-ip 10.42.0.51 --arm --model-mode required
-```
-
-Default live startup has 30 seconds of warmup. Learning mode applies unless
-`--arm` is explicitly supplied. Bind IPs must be assigned unicast addresses;
-wildcard/multicast binds and invalid/duplicate ports fail rather than silently
-listening elsewhere. Port bind failure closes previously opened listeners.
-
-The server's structured log reports peer IP, local port, and an optional
-`mapped_mac` from the configured bindings. It labels that identity source as
-`configured_ip_mapping`, never as a directly observed packet MAC. Unknown IPs
-remain unknown. The agent's live sniffer supplies actual Ethernet-MAC attribution
-and is the source of detection decisions. This prevents stale IP mappings from
-being silently presented as packet-level proof.
-
-For offline model replay and actual API/React Docker checks, see MODEL_HANDOFF.md
-and CLOUD_RUNNER.md. `--connect` now supports live cloud polling. Native Linux AP
-visibility, physical Pi traffic, and real Wi-Fi quarantine remain hardware
-acceptance tests; real nftables packet behavior is verified in the isolated lab.
+Hostapd and NetworkManager/nl80211 modes have different reassociation behavior;
+see the Linux runbook. Real Linux enforcement is separately exercised by `tools/smoke_firewall.py`,
+with hostapd stubbed. PR #18 reports live AP presence/ingest checks. Physical radio
+visibility, disconnect/denied reassociation/Restore, replay-to-Pi model transfer,
+and labeled real attack/normal accuracy still need their own acceptance evidence.

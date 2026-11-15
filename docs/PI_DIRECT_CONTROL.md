@@ -1,46 +1,65 @@
-# Immediate Raspberry Pi controls
+# Raspberry Pi control: current integration status
 
-The Pi must be the routed Wi-Fi access point, running hostapd and nftables.
-Quarantine uses the existing Linux backend: ingress/egress drops plus a hostapd
-deny entry and deauthentication. WAN blocking keeps local access and drops
-internet forwarding. Restore removes CasaWarden-owned restrictions.
+Reviewed at `332f573` on November 15, 2026, including PRs #19–20. The Linux router
+may be a Raspberry Pi or a laptop booted into Linux. It must host the routed,
+unbridged Wi-Fi AP with nftables and either hostapd or NetworkManager/nl80211. An ordinary Pi client cannot isolate
+other clients through a firewall on itself.
 
-On the Pi, create `/etc/casawarden/enforcement.json` using
-`agent/enforcement.example.json`. Set the actual AP and WAN interface names,
-hostapd paths, and the controller's real MAC in `protected_macs`. The backend
-checks these settings, rejects bridges/offloaded flow tables, and fails visibly
-if it cannot confirm an operation. Do not use the example MAC on real hardware.
+## Supported path
 
-Update both checkouts. The local `safe_deploy.sh` now starts the Pi agent with
-`--arm --enforcement linux --enforcement-config /etc/casawarden/enforcement.json`
-and `SECURIOT_DIRECT_CONTROL=1`. It forwards port 18081 to the Pi's loopback
-control listener and sets `SECURIOT_ROUTER_URL=http://host.docker.internal:18081`
-for the Mac API container. The endpoint authenticates with `AGENT_API_KEY`.
-The launcher is locally ignored by Git; copy its updated version separately.
-Newly discovered demo guests are actionable; configured controller MACs remain
-protected. Enable the response policy with the dashboard's Arm button.
+Configure discovery and real enforcement using the [Linux runbook](../agent/LINUX_ENFORCEMENT.md).
+Live CLI discovery starts without a fixture inventory. Newly discovered guests
+are registered with the collector/enforcer; configured controller MACs retain
+protection. Manual actions can bypass automatic learning/timing gates, while
+explicit target protection and disabled steps remain enforced.
 
-Manual commands wake the same runtime writer immediately, fetch current policy,
-execute the firewall operation, and return its result in the original request.
-The audit entry becomes applied only after execution. Requests retain durable
-IDs: a lost connection leaves an uncertain/pending result that regular sync can
-reconcile without executing the same command twice. No second acknowledgement
-round trip is needed for the UI to show a returned success.
+The tracked path is:
 
-Verify on the demo network: before quarantine, reach a peer from the target;
-after quarantine, verify peer and WAN traffic fail and the station cannot
-reassociate. Restore and verify both return. For WAN block, verify internet
-fails while peer access still works. Check the audit outcome for each action.
-These physical effects cannot be established by browser mock tests.
+1. The authenticated dashboard calls `POST /actions?wait=true` with a durable
+   UUID Idempotency-Key.
+2. The API creates the pending command and audit row. It can wait up to ten
+   seconds for a terminal command result; otherwise it returns pending.
+3. Live agent sync fetches authoritative policy/commands, applies the action on
+   its single runtime writer, journals the result and sends an acknowledgement.
+4. The API/dashboard reports applied or failed from that result. Lost responses
+   reuse journaled acknowledgements rather than repeating the same command UUID.
 
-The browser demo has five simulated devices; its operations never alter the
-physical router. Notifications alone remain informational. The manual
-Warn / Block Internet control performs WAN blocking.
+Normal live sync is scheduled every 0.5 seconds; API errors cause bounded
+backoff up to 30 seconds. Packet handling, enforcement and network delays mean
+this is not a response-time guarantee. Offline agents leave requests pending.
+Warn is informational; Block Internet is WAN filtering; Quarantine also denies
+Wi-Fi access; Restore removes only owned restrictions.
 
-## Account invitations
+## Direct listener exists but is not wired
 
-Set a random `SIGNUP_INVITE_CODE` of at least 16 characters in `api/.env` to
-enable sign up. Share it only with people permitted to control this router.
-New accounts require passwords of at least 16 characters. Without a configured
-code, registration is disabled and login continues to work. Memory-mode
-accounts are temporary; PostgreSQL accounts persist.
+`agent/securiot_agent/direct_control.py` defines an authenticated, loopback-only
+`DirectControl` listener, default port 18081. It validates command/policy payloads
+and exposes `drain()` so a runtime writer can fetch current sync and return a
+journaled result. Its unit tests do not establish end-to-end deployment.
+
+At this revision, neither `run_live` nor `CloudLoop` constructs/drains this
+listener, and the API does not dispatch to `SECURIOT_ROUTER_URL`. Compose passes
+that variable, but setting it or `SECURIOT_DIRECT_CONTROL=1` alone does not activate
+an immediate route. The direct-action integration test currently fails.
+Do not expose port 18081 or describe an SSH forwarding command as sufficient to
+activate this path. A separate implementation change is needed.
+
+The locally ignored `safe_deploy.sh` and private deployment state are not a
+versioned deployment contract. Public instructions must remain usable without
+copying a teammate's private helper or credentials.
+
+## Accounts and physical acceptance
+
+Use an existing provisioned judge/admin account. `SIGNUP_INVITE_CODE` and signup
+UI/tests exist, but `/auth/signup` currently returns 404; there is no working
+invitation registration flow in the tracked API.
+
+On the real AP, verify peer/WAN access before restriction, WAN-only blocking,
+quarantine, hostapd denied reassociation or nl80211 re-kick behavior, unaffected
+controller, Restore/rejoin, and
+panic recovery. Check IPv4/IPv6 and an already open connection. Listener/mock
+unit tests and API acknowledgements cannot independently verify the radio effects.
+
+NetworkManager/nl80211 quarantine has no admission deny list: firewall drops
+remain, and the live loop re-kicks reassociated clients roughly once per second.
+Hostapd mode uses an actual deny list. Test the radio behavior for the selected mode.

@@ -1,31 +1,30 @@
 # CasaWarden generated packet fixtures
 
-> **Naming:** CasaWarden was previously called SecurIoT. Existing package names,
-> commands, and fixture identifiers retain legacy spellings to preserve working
-> imports and reproducible tests. See the
-> [project naming note](../../README.md#project-name-and-compatibility).
+Reviewed at `332f573` (November 15, 2026). Legacy names keep replay/tests compatible.
+These files are synthetic Ethernet frames generated locally, not recordings of
+real devices or attacks. Generating/replaying them does not transmit packets or
+execute real firewall commands.
 
-These files contain **synthetic Ethernet frames created locally**, not recordings
-of real devices or attacks. No packets were transmitted to generate them. They
-exercise the real packet-file parser and collector while enforcement stays mocked.
-
-| Capture | Expected result |
+| Capture | Expected integrated behavior |
 | --- | --- |
-| `normal.pcap` | Normal DNS/reply traffic plus repeated SYNs to one target: no scan finding |
-| `scan.pcap` | C reports supporting target-scan evidence; preview can propose quarantine |
-| `arp_scan.pcap` | C detects 30 camera ARP requests in 10 seconds: eligible for mock quarantine |
-| `slow_targets.pcap` | The same number of targets spread over 19 seconds: below the window threshold |
-| `protected_arp.pcap` | Protected laptop emits 30 ARP requests inside 10 seconds: C ignores the protected MAC; no restriction (preview records a finding) |
+| `normal.pcap` | DNS/reply traffic and repeated SYNs to one target; no scan finding |
+| `scan.pcap` | Advisory target-scan evidence; preview can propose mock containment |
+| `arp_scan.pcap` | Multi-host ARP threshold; eligible for mock containment after safeguards |
+| `slow_targets.pcap` | Targets spread beyond the window; may evade the detector |
+| `protected_arp.pcap` | Suspicious activity remains observable; protected-device action is blocked |
 
-Each capture starts with normal activity, then crosses the startup warmup period.
-`devices.json` identifies the two known, simulated devices and the protected laptop.
-MACs, IPs, and DNS names are fixture data, not measured hardware identity.
-
-Regenerate reproducibly from the repository root:
+The captures include startup/warmup timing. `devices.json` supplies the synthetic
+camera and protected controller. MAC/IP/DNS/persona values are fixture facts,
+not verified hardware. Repeated ARP events may occur once a rule threshold stays
+crossed; do not infer one finding per capture from the model's separate cooldown.
 
 ```bash
 agent/.venv/bin/python agent/tools/make_replay_fixtures.py
+agent/.venv/bin/python agent/agent.py --replay agent/fixtures/arp_scan.pcap --arm
 ```
 
-Scapy is only used to build/read packet files. Inspect the captures with Wireshark
-if you want to see the actual packet headers. There is no live capture or send code.
+Scapy builds/reads these files. The public live agent rejects `--devices` and
+starts with real discovery; the normal API rejects simulated telemetry. Fixture
+modules retained in `web/src/mock/` are test helpers and are not a browser demo
+mode (`USE_MOCK=false`). See [agent modes](../README.md) and
+[current verification](../../docs/RECENT_CHANGES.md).
