@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ReadAloud } from "./ReadAloud";
 import { ChevronDown } from "lucide-react";
 import type { Issue } from "../lib/issues";
 import { SeverityTag } from "../lib/severity";
+import { SidePanel } from "./SidePanel";
 import { Button, Card } from "./ui";
 
 /** "What do I do?" Plain steps, one main action, technical details on request. */
@@ -25,20 +26,12 @@ export function FixSheet({
 }) {
   const [showTech, setShowTech] = useState(false);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   return (
-    <div className="fixed inset-0 z-40 flex justify-end">
-      <div className="absolute inset-0 animate-fade-in bg-black/20 backdrop-blur-[2px]" onClick={onClose} />
-      <aside className="relative flex h-full w-full max-w-[480px] animate-sheet-in flex-col overflow-y-auto bg-[#fbfbfd] shadow-[-20px_0_60px_rgba(0,0,0,0.08)]">
-        <header className="sticky top-0 z-10 flex items-center justify-between border-b border-hairline bg-[#fbfbfd]/80 px-6 py-3 backdrop-blur-xl">
+    <SidePanel label="Protection Guide" onClose={onClose}>
+        <header className="sticky top-0 z-10 flex items-center justify-between border-b border-hairline bg-[var(--sheet-bg)] px-6 py-3">
           <span className="text-[17px] font-medium text-ink-2">Protection Guide</span>
           <div className="flex items-center gap-2"><ReadAloud text={[issue.title, issue.summary, issue.why, ...issue.steps].join(" ")} enabled={audioEnabled} label="Read Protection Guide" iconOnly />
-          <Button variant="plain" className="h-8 px-2 text-[19px] font-semibold text-ink" onClick={onClose}>
+          <Button data-panel-close variant="plain" className="h-8 px-2 text-[19px] font-semibold text-ink" onClick={onClose}>
             Done
           </Button></div>
         </header>
@@ -46,7 +39,7 @@ export function FixSheet({
         <div className="space-y-6 px-6 pb-10 pt-6">
           <div>
             <SeverityTag severity={issue.severity} />
-            <h2 className="mt-3 text-[28px] font-semibold leading-tight tracking-tight text-ink">{issue.title}</h2>
+            <h2 className="mt-3 break-words [overflow-wrap:anywhere] text-[28px] font-semibold leading-tight tracking-tight text-ink">{issue.title}</h2>
             <p className="mt-2 text-[19px] leading-relaxed text-ink-2">{issue.summary}</p>
           </div>
 
@@ -107,7 +100,6 @@ export function FixSheet({
             )}
           </section>
         </div>
-      </aside>
-    </div>
+    </SidePanel>
   );
 }

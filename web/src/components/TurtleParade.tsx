@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import gsap from 'gsap';
 
 const family = [
@@ -10,15 +10,17 @@ const family = [
 ] as const;
 
 function Turtle({ size, shell, skin, marking }: typeof family[number]) {
+  const shellClip = `turtle-shell-${useId().replace(/:/g, "")}`;
   return <svg width={size * 1.4} height={size} viewBox="0 0 70 50" aria-hidden="true" focusable="false">
+    <defs><clipPath id={shellClip} clipPathUnits="userSpaceOnUse"><path d="M18 34c-1-31 43-34 44 0z" /></clipPath></defs>
     <path d="M60 30l8 4-8 3" fill={skin} />
-    <g data-leg style={{transformOrigin:'25px 34px'}}><ellipse cx="25" cy="39" rx="6" ry="8" fill={skin}/></g>
-    <g data-leg style={{transformOrigin:'48px 34px'}}><ellipse cx="49" cy="39" rx="6" ry="8" fill={skin}/></g>
+    <g data-leg><ellipse cx="25" cy="39" rx="6" ry="8" fill={skin}/></g>
+    <g data-leg><ellipse cx="49" cy="39" rx="6" ry="8" fill={skin}/></g>
     <ellipse cx="12" cy="29" rx="11" ry="9" fill={skin}/><circle cx="7" cy="26" r="1.8" fill="#153d26"/>
     <path d="M5 32q4 3 7 0" fill="none" stroke="#315a31" strokeWidth="1.4" strokeLinecap="round"/>
     <path d="M18 34c-1-31 43-34 44 0z" fill={shell}/>
     <path d="M18 34h44" stroke={skin} strokeWidth="3" strokeLinecap="round"/>
-    <g fill="none" stroke={skin} strokeWidth="1.8" opacity=".8">
+    <g clipPath={`url(#${shellClip})`} data-shell-markings fill="none" stroke={skin} strokeWidth="1.8" opacity=".8">
       {marking==='scutes' && <><path d="M33 12l12-1 8 10-7 10-13-1-7-10z"/><path d="M33 12l-4-6M45 11l5-5M53 21l8 1M46 31l3 3M33 30l-3 4M26 20l-6-2"/></>}
       {marking==='spots' && <><circle cx="31" cy="20" r="4"/><circle cx="47" cy="19" r="4"/><circle cx="40" cy="29" r="3"/></>}
       {marking==='stripe' && <><path d="M27 12q-3 10 3 20M39 7q-3 12 2 26M50 11q-1 10 4 20"/></>}
@@ -48,9 +50,8 @@ export function TurtleParade() {
     const context = gsap.context(() => {
       const walk = gsap.timeline({ paused: pausedRef.current, repeat: -1 });
       walk.fromTo(element, { x: () => container.clientWidth + 8 }, { x: () => -element.offsetWidth - 8, duration: 7, ease: 'none' });
-      const legs = gsap.to('[data-leg]', { rotation: 18, duration: .22, yoyo: true, repeat: -1, stagger: .06, ease: 'sine.inOut', paused: pausedRef.current });
-      const bounce = gsap.to('[data-turtle]', { y: -1.5, duration: .32, yoyo: true, repeat: -1, stagger: .09, ease: 'sine.inOut', paused: pausedRef.current });
-      animations.current = [walk, legs, bounce];
+      const legs = gsap.to('[data-leg]', { x: 3, y: 0, rotation: 0, duration: .16, yoyo: true, repeat: -1, stagger: .06, ease: 'sine.inOut', paused: pausedRef.current });
+      animations.current = [walk, legs];
       const resize = new ResizeObserver(() => { walk.invalidate(); });
       resize.observe(container);
       return () => resize.disconnect();
@@ -71,4 +72,4 @@ export function TurtleCompanion({ variant = 0 }: { variant?: number }) {
   return <span className="turtle-companion inline-flex shrink-0" aria-hidden="true"><Turtle {...family[variant % family.length]} /></span>;
 }
 
-export function TurtleHelpIcon(){return <span className="relative block h-8 w-10 [&_svg]:h-full [&_svg]:w-full" aria-hidden="true"><Turtle {...family[0]}/><span className="absolute left-[21px] top-[3px] text-[16px] font-bold text-white">?</span></span>;}
+export function TurtleHelpIcon(){return <span className="relative block h-12 w-16 [&_svg]:h-full [&_svg]:w-full" aria-hidden="true"><Turtle {...family[0]}/><span className="absolute left-[56%] top-[10px] -translate-x-1/2 text-[22px] font-bold leading-none text-white">?</span></span>;}

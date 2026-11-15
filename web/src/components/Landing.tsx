@@ -2,11 +2,11 @@ import { Logo } from './Logo';
 import { TurtleCompanion, TurtleParade } from './TurtleParade';
 import { Button } from './ui';
 
-export function Landing({ onEnter }: { onEnter: () => void }) {
+export function Landing({ onEnter, authenticated = false }: { onEnter: () => void; authenticated?: boolean }) {
   return <div className="flex min-h-screen flex-col bg-white text-ink">
     <header className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4 px-6 py-6">
       <div className="flex items-center gap-2"><Logo size={30} /><span className="font-semibold">CasaWarden</span></div>
-      <Button onClick={onEnter}>Log in / Sign up</Button>
+      <Button onClick={onEnter}>{authenticated ? "Open Dashboard" : "Log in / Sign up"}</Button>
     </header>
     <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-12 sm:py-20">
       <TurtleCompanion />

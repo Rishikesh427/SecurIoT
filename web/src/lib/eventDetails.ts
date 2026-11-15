@@ -10,7 +10,7 @@ export const outcomeLabels: Record<EventOutcome, string> = {
   reported_applied: "Applied — reported",
   would_have: "Would have acted",
   failed: "Failed or uncertain",
-  no_action: "No action recorded",
+  no_action: "Informational",
 };
 
 export const actionNames: Record<string, string> = {

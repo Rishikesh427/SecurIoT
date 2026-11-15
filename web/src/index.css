@@ -121,3 +121,65 @@ html { scroll-behavior: smooth; }
 .arm-control[data-scanning="false"] { background: var(--color-ink); color: var(--color-white); }
 
 .overflow-y-auto { scroll-behavior: smooth; }
+
+
+/* Readable sheet surfaces and controls in both themes. */
+:root {
+  --sheet-bg: #f7f7fa;
+  --sheet-card: #ffffff;
+  --sheet-notice-bg: #fff4dc;
+  --sheet-notice-fg: #5b3900;
+  --sheet-notice-border: #93620b;
+  --control-border: #77777f;
+  --control-primary-bg: #1d1d1f;
+  --control-primary-fg: #ffffff;
+  --control-primary-hover: #333336;
+  --control-danger-bg: #b42318;
+  --control-danger-fg: #ffffff;
+  --control-danger-hover: #921a12;
+  --color-bad: #b42318;
+  --color-warn: #805500;
+  --color-ok: #1b733b;
+  --color-sev-critical: #b42318;
+  --color-sev-high: #9a3412;
+  --color-sev-medium: #805500;
+  --color-sev-low: #5b5b63;
+}
+[data-theme="dark"] {
+  --sheet-bg: #111115;
+  --sheet-card: #1b1b21;
+  --sheet-notice-bg: #332912;
+  --sheet-notice-fg: #ffdda5;
+  --sheet-notice-border: #ba8b37;
+  --control-border: #888892;
+  --control-primary-bg: #f5f5f7;
+  --control-primary-fg: #101014;
+  --control-primary-hover: #dedee3;
+  --color-bad: #ff9a92;
+  --color-warn: #ffd58a;
+  --color-ok: #73d995;
+  --color-sev-critical: #ff9a92;
+  --color-sev-high: #ffb086;
+  --color-sev-medium: #ffd58a;
+  --color-sev-low: #b4b4ba;
+}
+.side-panel-root::backdrop { background: transparent; }
+.side-panel-scrim { background: rgb(0 0 0 / 55%); }
+.side-panel {
+  background: var(--sheet-bg);
+  color: var(--color-ink);
+  --color-white: var(--sheet-card);
+  overscroll-behavior: contain;
+}
+.side-panel .sheet-notice {
+  background: var(--sheet-notice-bg);
+  color: var(--sheet-notice-fg);
+  border-color: var(--sheet-notice-border);
+}
+.side-panel button { min-height: 44px; min-width: 44px; }
+.side-panel .ui-button { border: 1px solid var(--control-border); }
+.side-panel :is(input, select, textarea) { border: 1px solid var(--control-border); }
+.side-panel :is(button, input, select, textarea, summary, a, [tabindex]):focus-visible {
+  outline: 3px solid var(--color-ink);
+  outline-offset: 3px;
+}

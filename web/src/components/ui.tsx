@@ -71,15 +71,15 @@ export function SectionTitle({ children, action }: { children: ReactNode; action
 type Variant = "primary" | "secondary" | "destructive" | "plain";
 export function Button({ variant = "secondary", className = "", ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant }) {
   const variants: Record<Variant, string> = {
-    primary: "bg-ink text-white hover:bg-black",
+    primary: "bg-[var(--control-primary-bg)] text-[var(--control-primary-fg)] hover:bg-[var(--control-primary-hover)]",
     secondary: "bg-fill text-ink hover:bg-fill-2",
-    destructive: "bg-bad text-white hover:brightness-95",
+    destructive: "bg-[var(--control-danger-bg)] text-[var(--control-danger-fg)] hover:bg-[var(--control-danger-hover)]",
     plain: "text-ink-2 hover:text-ink",
   };
   return (
     <button
       {...props}
-      className={`inline-flex h-9 items-center justify-center gap-2 rounded-full px-4 text-[18px] font-medium transition-all duration-200 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-35 ${variants[variant]} ${className}`}
+      className={`ui-button inline-flex h-9 items-center justify-center gap-2 rounded-full px-4 text-[18px] font-medium transition-all duration-200 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-35 ${variants[variant]} ${className}`}
     />
   );
 }
