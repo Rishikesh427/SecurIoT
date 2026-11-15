@@ -305,6 +305,11 @@ class DemoDiscovery:
             if device.mac in stations:
                 self.absent_since.pop(device.mac, None)
                 self.left.discard(device.mac)
+                if device.last_seen is None:
+                    # Associated but quiet (an idle phone): being on the Wi-Fi is enough
+                    # to list it. Uploads require last_seen, so without this it stayed hidden.
+                    device.last_seen = now
+                    self.changed = True
                 if not device.present:
                     self._set_present(device, True, 'associated')
             else:

@@ -24,13 +24,26 @@ def unicast_mac(value):
     return mac
 
 
+HOSTAPD_KEYS = {"ap_interface", "wan_interface", "hostapd_control", "hostapd_config", "protected_macs"}
+# An AP run by NetworkManager/wpa_supplicant has no hostapd control socket or deny
+# list: stations are removed with nl80211 (`iw ... station del`) and kept out by
+# the firewall drop plus a re-kick whenever they reassociate.
+NL80211_KEYS = {"ap_interface", "wan_interface", "wifi_control", "protected_macs"}
+
+
 class LinuxConfig:
     def __init__(self, data):
         if not isinstance(data, dict):
             raise ValueError("Linux config must be a JSON object")
-        required = {"ap_interface", "wan_interface", "hostapd_control", "hostapd_config", "protected_macs"}
-        if set(data) != required:
-            raise ValueError("Linux config requires exactly: " + ", ".join(sorted(required)))
+        if set(data) == NL80211_KEYS and data["wifi_control"] == "nl80211":
+            self.wifi_control = "nl80211"
+            required = NL80211_KEYS
+        elif set(data) == HOSTAPD_KEYS:
+            self.wifi_control = "hostapd"
+            required = HOSTAPD_KEYS
+        else:
+            raise ValueError("Linux config requires exactly: " + ", ".join(sorted(HOSTAPD_KEYS))
+                             + ' (hostapd) or ' + ", ".join(sorted(NL80211_KEYS)) + ' with "wifi_control": "nl80211"')
         for key in ("ap_interface", "wan_interface"):
             value = data[key]
             if not isinstance(value, str) or not re.fullmatch(r"[a-zA-Z0-9_.-]{1,15}", value):
@@ -39,6 +52,9 @@ class LinuxConfig:
         if self.ap_interface == self.wan_interface:
             raise ValueError("AP and WAN interfaces must differ")
         for key in ("hostapd_control", "hostapd_config"):
+            if key not in data:
+                setattr(self, key, None)
+                continue
             if not isinstance(data[key], str) or not Path(data[key]).is_absolute():
                 raise ValueError("hostapd paths must be absolute")
             setattr(self, key, data[key])
@@ -133,7 +149,53 @@ class LinuxEnforcer:
         return {line.split()[0].lower() for line in output.splitlines()
                 if re.fullmatch(r"(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}(?:\s.*)?", line)}
 
+    @property
+    def nl80211(self):
+        return self.config.wifi_control == "nl80211"
+
+    def denied(self):
+        """MACs currently refused by the Wi-Fi layer."""
+        # Without hostapd there is no AP deny list; our own re-kick list is the denial.
+        return set(self.state["owned_deny"]) if self.nl80211 else self._macs("deny_acl", "SHOW")
+
+    def _deny(self, mac):
+        if not self.nl80211:
+            self._ok("deny_acl", "ADD_MAC", mac)
+
+    def _allow(self, mac):
+        if not self.nl80211:
+            self._ok("deny_acl", "DEL_MAC", mac)
+
+    def _kick(self, mac):
+        if self.nl80211:
+            self.command(["iw", "dev", self.config.ap_interface, "station", "del", mac])
+        else:
+            self._ok("deauthenticate", mac)
+
+    def stations(self):
+        if not self.nl80211:
+            return self._macs("all_sta")
+        output = self.command(["iw", "dev", self.config.ap_interface, "station", "dump"])
+        return {m.lower() for m in re.findall(r"^Station\s+((?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2})", output, re.M)}
+
+    def maintain(self):
+        """Re-kick quarantined stations that reassociated (nl80211 has no deny list).
+
+        Their traffic is already dropped by the firewall; this keeps them from
+        holding an association, and limits any direct client-to-client window."""
+        if not self.nl80211 or not self.state["owned_deny"]:
+            return []
+        kicked = []
+        present = self.stations()
+        for mac in self.state["owned_deny"]:
+            if mac in present:
+                self._kick(mac)
+                kicked.append(mac)
+        return kicked
+
     def connected(self, mac):
+        if self.nl80211:
+            return mac in self.stations()
         if mac not in self._macs("all_sta"):
             return False
         # hostapd may retain a station record after deauth. Data authorization,
@@ -169,6 +231,13 @@ class LinuxEnforcer:
             if link.get("master") or link.get("linkinfo", {}).get("info_kind") == "bridge":
                 raise ValueError("This backend requires an unbridged, routed AP and WAN")
         self.protected |= {link["address"].lower() for link in links if "address" in link}
+        if self.nl80211:
+            info = self.command(["iw", "dev", self.config.ap_interface, "info"])
+            if not re.search(r"^\s*type AP\s*$", info, re.M):
+                raise ValueError("nl80211 control requires the AP interface to be in AP mode")
+            self.stations()
+            self.ruleset()
+            return
         settings = {}
         for line in Path(self.config.hostapd_config).read_text().splitlines():
             line = line.strip()
@@ -235,15 +304,15 @@ table inet {TABLE} {{
         self.save()
         self._firewall()
         wanted = {m for m, status in self.state["desired"].items() if status == "quarantined"}
-        denied = self._macs("deny_acl", "SHOW")
+        denied = self.denied()
         owned = set(self.state["owned_deny"])
         for mac in sorted(owned - wanted):
             if mac in denied:
-                self._ok("deny_acl", "DEL_MAC", mac)
-            if mac in self._macs("deny_acl", "SHOW"):
-                raise EnforcementError("Wi-Fi restore could not be verified")
+                self._allow(mac)
             owned.remove(mac)
             self.state["owned_deny"] = sorted(owned)
+            if mac in self.denied():
+                raise EnforcementError("Wi-Fi restore could not be verified")
             self.save()
         for mac in sorted(wanted):
             if mac in denied and mac not in owned:
@@ -252,11 +321,11 @@ table inet {TABLE} {{
             self.state["owned_deny"] = sorted(owned)
             self.save()  # Intent is durable even if the command response is lost.
             if mac not in denied:
-                self._ok("deny_acl", "ADD_MAC", mac)
-            if mac not in self._macs("deny_acl", "SHOW"):
+                self._deny(mac)
+            if mac not in self.denied():
                 raise EnforcementError("Wi-Fi deny entry could not be verified")
             if self.connected(mac):
-                self._ok("deauthenticate", mac)
+                self._kick(mac)
             for _ in range(60):
                 if not self.connected(mac):
                     break
@@ -281,7 +350,7 @@ table inet {TABLE} {{
             raise ValueError("Protected device")
         if action == "restore":
             # Do not pretend to restore access if an administrator owns the ban.
-            if mac in self._macs("deny_acl", "SHOW") and mac not in self.state["owned_deny"]:
+            if mac in self.denied() and mac not in self.state["owned_deny"]:
                 raise EnforcementError("Device has an external Wi-Fi deny entry; left unchanged")
             self.state["desired"].pop(mac, None)
         else:
@@ -298,11 +367,12 @@ table inet {TABLE} {{
             script = "\n".join(f"delete table {family} {TABLE}" for family in sorted(existing)) + "\n"
             self.command(["nft", "-f", "-"], input=script)
         for mac in list(self.state["owned_deny"]):
-            if mac in self._macs("deny_acl", "SHOW"):
-                self._ok("deny_acl", "DEL_MAC", mac)
-            if mac in self._macs("deny_acl", "SHOW"):
-                raise EnforcementError("Firewall cleared, but Wi-Fi deny cleanup remains pending")
-            self.state["owned_deny"].remove(mac)
+            if not self.nl80211:
+                if mac in self._macs("deny_acl", "SHOW"):
+                    self._ok("deny_acl", "DEL_MAC", mac)
+                if mac in self._macs("deny_acl", "SHOW"):
+                    raise EnforcementError("Firewall cleared, but Wi-Fi deny cleanup remains pending")
+            self.state["owned_deny"].remove(mac)  # nl80211: dropping it stops the re-kicks
             self.save()
         self.state["confirmed"] = {}
         self.state["pending"] = False
