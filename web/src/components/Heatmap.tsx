@@ -44,14 +44,14 @@ export function Heatmap({ devices, events, now }: { devices: DashDevice[]; event
     return () => ctx.revert();
   }, [size, devices.length, hot]);
 
-  const unit = { "1m": "one minute", "5m": "five minutes", "1h": "one hour" }[size];
+  const unit = { "1m": "minute", "5m": "5 minutes", "1h": "hour" }[size];
   return (
     <div ref={root} className="space-y-4">
       <div className="flex items-center justify-between gap-4">
         <h1 className="t-head">Activity</h1>
         <Segmented<Size> value={size} onChange={setSize} options={[{ value: "1m", label: "1 min" }, { value: "5m", label: "5 min" }, { value: "1h", label: "1 hour" }]} />
       </div>
-      <p className="t-body text-ink-2">Each square represents {unit}.</p>
+      <p className="t-body text-ink-2">Each square is one {unit}. Darker orange means a more serious warning; red means the device was quarantined.</p>
       <div className="overflow-x-auto"><div className="min-w-[560px] space-y-2">
         {rows.map(({ d, cells }) => (
           <div key={d.mac} className="flex items-center gap-3">

@@ -10,11 +10,7 @@ const PROJECTOR_MAC = fixtures.devices.find((d) => d.type === "projector")!.mac;
 /** Fixture devices with timestamps refreshed to now. */
 export function fixtureDevices(): Device[] {
   const now = new Date().toISOString();
-  const extra: Device[] = [
-    { ...fixtures.devices[1], mac: '02:00:00:00:00:60', ip: '10.42.0.60', name: 'plug', label: 'Kitchen smart plug (simulated)', type: 'plug', risk: 35, band: 'medium', reasons: ['Unencrypted service (+35)'], ports: [80] },
-    { ...fixtures.devices[1], mac: '02:00:00:00:00:70', ip: '10.42.0.70', name: 'speaker', label: 'Office speaker (simulated)', type: 'speaker' },
-  ];
-  return [...fixtures.devices, ...extra].map((d) => ({ ...d, last_seen: now }));
+  return fixtures.devices.map((d) => ({ ...d, last_seen: now }));
 }
 
 /**

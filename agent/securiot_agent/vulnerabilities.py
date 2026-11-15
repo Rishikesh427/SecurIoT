@@ -87,7 +87,7 @@ class VulnerabilityAssessor:
                       "catalog_version": self.catalog.get("catalogVersion"),
                       "firmware_applicability_checked": False}, "candidate")
         # Web ports get risk points only when explicitly reported as admin ports.
-        scoring = {**profile, "ports": sorted((ports & SERVICES.keys()) | (ports & admin_ports)),
+        scoring = {**profile, "ports": sorted((configured & SERVICES.keys()) | (configured & admin_ports)),
                    "anomaly": anomaly}
         static = score_device({**scoring, "anomaly": 0}, kev)
         result = score_device(scoring, kev)

@@ -16,8 +16,9 @@ def device_record(device, anomaly=0):
     persona = facts.get("persona", {})
     return {
         "mac": device.mac, "ip": device.ip, "name": device.name, "label": device.name,
-        "type": score["type"],
-        "vendor": persona.get("vendor", facts.get("vendor")) or (facts.get("inferred") or {}).get("vendor"),
+        "type": score["type"], "vendor": persona.get("vendor", facts.get("vendor")),
+        "model": persona.get("model", facts.get("model")), "firmware": facts.get("firmware"),
+        "identification": {**facts["inferred"], "observed_ports": sorted(facts.get("observed_ports", [])), "automatic_protected": device.protected, "manual_protected": bool(facts.get("_manual_protected") or (device.protected and not facts.get("_demo_discovered")))} if facts.get("inferred") else {},
         "ports": sorted(set(facts.get("ports", [])) | set(facts.get("observed_ports", []))), "bytes_in": device.bytes_in,
         "bytes_out": device.bytes_out, "dests": device.dests,
         "last_seen": datetime.fromtimestamp(device.last_seen, timezone.utc).isoformat(),

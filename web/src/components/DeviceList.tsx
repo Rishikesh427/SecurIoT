@@ -102,13 +102,13 @@ export function DeviceList({
                     }`}
                   >
                     <span className={`rounded-full ${isFresh ? "animate-pulse-ring" : ""}`}>
-                      <RiskRing risk={d.risk_adjusted ?? d.risk} band={d.band} />
+                      <RiskRing risk={100-d.risk} band={d.band} />
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="truncate text-[19px] font-medium text-ink">{d.label}</span>
                         {isFresh && <Tag tone="ok">New</Tag>}
-                        {d.simulated && <Tag>Simulated</Tag>}
+                        
                         {d.protected && <Tag>Protected</Tag>}
                       </div>
                       <div className="mt-0.5">

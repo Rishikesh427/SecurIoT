@@ -10,7 +10,7 @@ requires-python = ">=3.11"
 dependencies = []
 
 [project.optional-dependencies]
-replay = ["scapy>=2.6,<3"]
+replay = ["scapy>=2.6,<3", "netaddr>=1.3,<2"]
 cloud = ["jsonschema>=4.23,<5", "rfc3339-validator>=0.1.4,<1"]
 # Loads Worker C's trained scan model (ml/data/scan_model.joblib); without it the
 # detector uses threshold rules only. Pins match the saved model.

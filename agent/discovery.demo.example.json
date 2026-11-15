@@ -2,7 +2,7 @@
   "interface": "wlan0",
   "cidr": "10.42.0.0/24",
   "leases": "/var/lib/misc/dnsmasq.leases",
-  "protect_guests": true,
-  "max_devices": 128,
+  "protect_guests": false,
+  "max_devices": 20,
   "excluded_macs": []
 }

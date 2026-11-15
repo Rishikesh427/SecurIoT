@@ -3,6 +3,7 @@ import asyncio
 import copy
 import hashlib
 import json
+import re
 import time
 from collections import OrderedDict, defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
@@ -16,6 +17,7 @@ from pydantic import Field, field_validator
 
 from api.telemetry import Mac, StrictModel
 from ml.securiot_ml import advisor as ai
+from ml.securiot_ml import research
 
 
 class Turn(StrictModel):
@@ -44,11 +46,12 @@ def recent_events(db):
 
 
 class AdvisorService:
-    RETRY = 60
-    TTL = 900
+    RETRY = 300
+    TTL = 86400
 
     def __init__(self, workers=2, max_pending=16, max_cache=256):
         self.pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix='advisor')
+        self.research_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='public-research')
         self.lock = RLock()
         self.cache = OrderedDict()
         self.pending = {}
@@ -87,9 +90,11 @@ class AdvisorService:
             return self.pending[key]
         if self.closed or len(self.pending) >= self.max_pending:
             return None
+        if key.startswith('research:') and any(k.startswith('research:') for k in self.pending):
+            return None
         if key.startswith('note:') and sum(k.startswith('note:') for k in self.pending) >= self.note_limit:
             return None
-        future = self.pool.submit(function, *copy.deepcopy(args))
+        future = (self.research_pool if key.startswith('research:') else self.pool).submit(function, *copy.deepcopy(args))
         self.pending[key] = future
 
         def finish(done):
@@ -105,12 +110,31 @@ class AdvisorService:
         future.add_done_callback(finish)
         return future
 
+    def research_key(self, device):
+        return 'research:' + hashlib.sha256(json.dumps(research.public_identity(device), sort_keys=True).encode()).hexdigest()
+
+    def research_status(self, device, start=False):
+        key = self.research_key(device)
+        with self.lock:
+            cached = self._cached(key)
+            if cached is not None:
+                return cached
+            future = self.pending.get(key)
+            if future is None and start:
+                future = self._submit(key, research.lookup, device)
+            return {'status':'pending' if future is not None else 'unavailable' if start else 'idle', 'source':'rules', **({'reason':'busy'} if start and future is None else {})}
+
+    def enrich(self, device):
+        result = self.research_status(device, start=self.configured)
+        return {**device, 'public_research':result} if result.get('status') == 'ready' else device
+
     def decorate(self, devices, events=()):
         by_mac = defaultdict(list)
         for event in events:
             by_mac[event['mac']].append(event)
         output = []
         for device in devices:
+            device = self.enrich(device)
             context = by_mac[device['mac']]
             key = 'note:' + ai.cache_key(device, context)
             with self.lock:
@@ -121,7 +145,18 @@ class AdvisorService:
                     future = self._submit(key, ai.note, device, context) if self.configured else None
                     state = 'pending' if future is not None else 'unavailable' if self.configured else 'off'
             advice = result or ai.fallback(device)
-            output.append({**copy.deepcopy(device), 'risk_adjusted': advice['risk_adjusted'],
+            visible = copy.deepcopy({k:v for k,v in device.items() if k != 'public_research'})
+            # Display-only inferred names; never overwrite discovery records or user names.
+            candidate = re.sub(r'[^a-zA-Z0-9 /()+-]', '', advice.get('likely_type', ''))[:48].strip()
+            if (visible.get('name', '').startswith('Guest ') and advice.get('source') == 'gemini'
+                    and advice.get('confidence') in ('medium', 'high')
+                    and candidate.lower() not in ('', 'unknown', 'generic', 'iot', 'device')
+                    and any((device.get('identification') or {}).get(k) for k in ('vendor', 'type', 'label'))):
+                visible['name'] = 'Possible ' + candidate + ' ' + device['mac'][-5:]
+                visible['label'] = visible['name']
+                visible['identification'] = {**visible.get('identification', {}),
+                    'suggested_name': candidate, 'name_source': 'gemini', 'name_confidence': advice['confidence']}
+            output.append({**visible, 'risk_adjusted': advice['risk_adjusted'],
                            'ai': {**advice, 'status': state}})
         return output
 
@@ -142,6 +177,7 @@ class AdvisorService:
         with self.lock:
             self.closed = True
         self.pool.shutdown(wait=False, cancel_futures=True)
+        self.research_pool.shutdown(wait=False, cancel_futures=True)
 
 
 def router(current_user):
@@ -156,7 +192,23 @@ def router(current_user):
             raise HTTPException(404, 'Device not found')
         events = [e for e in recent_events(db) if e['mac'] == body.mac]
         history = [t.model_dump() for t in body.history]
-        return await service.run(str(uuid4()), ai.chat, device, history, body.question, events, cache=False)
+        return await service.run(str(uuid4()), ai.chat, service.enrich(device), history, body.question, events, cache=False)
+
+    def research_device(mac, request):
+        device = next((d for d in request.app.state.db.devices() if d['mac'] == mac), None)
+        if device is None:
+            raise HTTPException(404, 'Device not found')
+        return device
+
+    @routes.post('/advisor/research/{mac}')
+    def start_research(mac: Mac, request: Request, user=Depends(current_user)):
+        service = request.app.state.advisor
+        service.allow(user['username'], limit=6)
+        return service.research_status(research_device(mac, request), start=True)
+
+    @routes.get('/advisor/research/{mac}')
+    def research_status(mac: Mac, request: Request, user=Depends(current_user)):
+        return request.app.state.advisor.research_status(research_device(mac, request))
 
     @routes.get('/advisor/triage')
     async def triage(request: Request, user=Depends(current_user)):

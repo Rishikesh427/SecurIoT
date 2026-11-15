@@ -34,6 +34,8 @@ class Agent:
                 raise ValueError('Real enforcement needs every device to have "simulated": false')
         if storage.mode != ("simulation" if enforcer.simulated else "linux"):
             raise ValueError("Use a separate Linux state directory for real enforcement")
+        self.manual_protected = set(getattr(enforcer, 'protected', set())) | {
+            d.mac for d in inventory.devices.values() if d.protected and not d.risk_facts.get('_demo_discovered')}
         self.inventory = inventory
         self.detector = detector
         self.enforcer = enforcer
@@ -80,7 +82,7 @@ class Agent:
             status = record["status"]
             if status == "normal":
                 continue
-            if device.protected:
+            if device.protected and not device.risk_facts.get('_demo_discovered'):
                 self._event("state_skipped", mac, {"reason": "Device is now protected"})
                 continue
             action = "block_wan" if status == "blocked" else "quarantine"
@@ -271,13 +273,13 @@ class Agent:
         if action in ("block_wan", "quarantine") and not self.ladder[action]:
             return decision("disabled_by_policy")
         if action != "restore":
-            if device.protected:
+            if device.protected and (not manual or not device.risk_facts.get('_demo_discovered') or mac in self.manual_protected):
                 return decision("protected_device")
             if not manual and now - self.started_at < self.policy.warmup_seconds:
                 return decision("startup_warmup")
             if not manual and now < self.grace_until.get(mac, 0):
                 return decision("restore_grace")
-            if self.policy.learning_mode:
+            if self.policy.learning_mode and not manual:
                 return decision("learning_mode", learning=True)
             if not manual and mac in self.last_action_at and now - self.last_action_at[mac] < self.policy.cooldown_seconds:
                 return decision("action_cooldown")

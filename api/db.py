@@ -16,7 +16,7 @@ class Database:
 
     def ready(self):
         with self.connect() as conn:
-            return conn.execute("SELECT version FROM schema_migrations WHERE version = 4").fetchone() is not None
+            return conn.execute("SELECT version FROM schema_migrations WHERE version = 6").fetchone() is not None
 
     def audit(self):
         from api.audit_history import merge_history
@@ -35,21 +35,15 @@ class Database:
         with self.connect() as conn:
             return conn.execute("SELECT id, username, role, active FROM users WHERE id = %s", (user_id,)).fetchone()
 
-    def create_user(self, username, password_hash):
-        from uuid import uuid4
-        try:
-            with self.connect() as conn:
-                return conn.execute("INSERT INTO users(id,username,password_hash,role,active) VALUES (%s,%s,%s,'judge',true) RETURNING id,username,role,active",
-                                    (uuid4(), username, password_hash)).fetchone()
-        except psycopg.errors.UniqueViolation:
-            raise HTTPException(409, 'Username is already in use') from None
-
     def ingest(self, batch):
         counts = {'accepted_devices': 0, 'accepted_events': 0}
         with self.connect() as conn:
             # A transaction-scoped lock serializes UUID checks across all API workers.
             # This avoids a second hypertable and enforces global UUID identity.
             conn.execute('SELECT pg_advisory_xact_lock(714281005)')
+            known = {str(row['mac']) for row in conn.execute('SELECT mac FROM devices')}
+            if ({d.mac for d in batch.devices} - known) and len(known | {d.mac for d in batch.devices}) > 20:
+                raise HTTPException(409, 'Device registration unavailable')
             for event in batch.events:
                 existing = conn.execute('SELECT * FROM events WHERE id = %s', (event.id,)).fetchone()
                 data = event.model_dump(mode='json')
@@ -77,6 +71,19 @@ class Database:
             sql.Identifier(table), sql.SQL(',').join(map(sql.Identifier, data)),
             sql.SQL(',').join(sql.Placeholder() for _ in data)),
             [Jsonb(v) if isinstance(v, (dict, list)) else v for v in data.values()])
+
+    def command_result(self, command_id):
+        with self.connect() as conn:
+            row = conn.execute('SELECT status, detail FROM commands WHERE id=%s', (command_id,)).fetchone()
+            return dict(row) if row else None
+
+    def warn(self, mac, actor):
+        from uuid import uuid4
+        with self.connect() as conn:
+            if not conn.execute('SELECT 1 FROM devices WHERE mac=%s', (mac,)).fetchone():
+                raise HTTPException(404, 'Device not found')
+            row = conn.execute("INSERT INTO audit(id,ts,actor,action,mac,outcome) VALUES (%s,now(),%s,'notify',%s,'applied') RETURNING id", (uuid4(), actor, mac)).fetchone()
+            return {'id': str(row['id']), 'status': 'recorded'}
 
     def sync(self):
         with self.connect() as conn:
@@ -165,6 +172,12 @@ class Database:
                 return existing
             known = body.mac is None or conn.execute('SELECT 1 FROM devices WHERE mac=%s', (body.mac,)).fetchone() is not None
             check_action(body, row, known)
+            if body.action in ('restore', 'restore_all'):
+                conn.execute("""UPDATE commands SET status='cancelled', ack_ts=now(), detail='Superseded by restore'
+                    WHERE status='pending' AND action IN ('block_wan','quarantine') AND (%s OR mac=%s)""",
+                    (body.action == 'restore_all', body.mac))
+                conn.execute("""UPDATE audit SET outcome='failed', ts=now() WHERE outcome='requested'
+                    AND command_id IN (SELECT id FROM commands WHERE status='cancelled')""")
             command = conn.execute('INSERT INTO commands(id,action,mac) VALUES (%s,%s,%s) RETURNING id,created_at,action,mac',
                                    (command_id, body.action, body.mac)).fetchone()
             conn.execute("INSERT INTO audit(id,actor,action,mac,command_id,outcome) VALUES (%s,%s,%s,%s,%s,'requested')",

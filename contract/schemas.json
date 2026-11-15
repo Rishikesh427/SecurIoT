@@ -324,6 +324,15 @@
             "quarantined",
             "offline"
           ]
+        },
+        "firmware": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "identification": {
+          "type": "object"
         }
       }
     },
@@ -963,6 +972,22 @@
         },
         "ai": {
           "$ref": "#/$defs/DeviceAi"
+        },
+        "firmware": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "identification": {
+          "type": "object"
+        },
+        "snapshot_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
         }
       }
     },

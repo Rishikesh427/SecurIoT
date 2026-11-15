@@ -18,16 +18,26 @@ from .storage import Storage
 
 
 def build(devices: Path, state_dir: Path, *, armed=False, decoy_ips=(), clock=time.time, model_mode="rules", linux_config=None):
-    inventory = load_devices(devices, simulated=linux_config is None)
+    from .inventory import Inventory
+    inventory = Inventory([]) if devices is None else load_devices(devices, simulated=linux_config is None)
     from .demo_discovery import prepare_inventory
-    prepare_inventory(inventory, state_dir, linux_config is None)
+    if devices is not None:
+        prepare_inventory(inventory, state_dir, linux_config is None)
     detector = MLAdapter(clock, (d.mac for d in inventory.devices.values() if d.protected), model_mode=model_mode)
     enforcer = MockEnforcer()
     if linux_config is not None:
         from .linux_enforcement import LinuxEnforcer
-        enforcer = LinuxEnforcer(linux_config, state_dir, list(inventory.devices.values()))
+        enforcer = LinuxEnforcer(linux_config, state_dir, [dataclasses.replace(d, protected=False) if d.risk_facts.get('_demo_discovered') else d for d in inventory.devices.values()])
+        if devices is None:
+            # Retain durable real restrictions when discovery starts empty. Only
+            # journaled devices need cached identity for Restore after restart.
+            restricted = set(enforcer.state['desired']) | set(enforcer.state['confirmed'])
+            enforcer.allowed.update(restricted)
+            if restricted:
+                prepare_inventory(inventory, state_dir, False)
+                inventory.devices = {mac: device for mac, device in inventory.devices.items() if mac in restricted}
         for device in inventory.devices.values():
-            device.protected = device.protected or device.mac in enforcer.protected
+            device.protected = device.mac in enforcer.protected if devices is None else device.protected or device.mac in enforcer.protected
     try:
         agent = Agent(inventory, detector, enforcer, Storage(state_dir, "linux" if linux_config else "simulation"), clock=clock)
     except BaseException:
@@ -80,7 +90,7 @@ class LivePump:
         self.dropped = 0
         self._routine_dropped = 0
         self.next_poll = 0.0
-        self.direct = None
+        self.cloud_failures = 0
 
     def receive(self, packet):
         try:
@@ -93,8 +103,6 @@ class LivePump:
             for mac in self.agent.routine.windows:
                 self.agent.routine.flag(mac)
             self._routine_dropped = self.dropped
-        if self.direct is not None:
-            self.direct.drain()
         self.agent.routine_tick()
         try:
             self.handle(self.packets.get(timeout=wait))
@@ -103,13 +111,20 @@ class LivePump:
         if self.discovery is not None:
             self.discovery.tick()
         if self.cloud is not None and now >= self.next_poll:
-            for error in self.cloud.tick():
+            errors = self.cloud.tick()
+            for error in errors:
                 print(f"Cloud: {error}; pending work retained")
-            self.next_poll = now + 2
+            self.cloud_failures = min(5, self.cloud_failures + 1) if errors else 0
+            self.next_poll = now + (min(30, 2 ** self.cloud_failures) if errors else .5)
 
 
 def run_live(iface, devices, state_dir, armed=False, decoy_ips=(), model_mode="required", *,
              linux_config=None, api_url=None, api_key=None):
+    import os
+    if linux_config is None:
+        raise ValueError('Live operation requires real Linux enforcement configuration')
+    if not os.environ.get('SECURIOT_DISCOVERY_CONFIG'):
+        raise ValueError('Live operation requires discovery configuration')
     from scapy.all import AsyncSniffer
     if linux_config is not None and linux_config.ap_interface != iface:
         raise ValueError("Capture must use the configured AP interface")
@@ -133,9 +148,6 @@ def run_live(iface, devices, state_dir, armed=False, decoy_ips=(), model_mode="r
             discovery = DemoDiscovery(json.loads(Path(config_path).read_text()), agent, collector, cloud, iface)
             discovery.start()
         pump = LivePump(agent, collector, cloud, discovery=discovery)
-        if cloud is not None and os.environ.get("SECURIOT_DIRECT_CONTROL") == "1":
-            from .direct_control import DirectControl
-            pump.direct = DirectControl(cloud, api_key)
         mode = "mock actions" if agent.enforcer.simulated else "REAL Linux enforcement"
         print(f"SECURIOT LIVE on {iface}: {'ARMED' if armed else 'learning mode'} ({mode}); "
               f"{len(collector.windows)} known devices; 30 s automatic warmup. Ctrl+C to stop.")
@@ -156,8 +168,6 @@ def run_live(iface, devices, state_dir, armed=False, decoy_ips=(), model_mode="r
     except KeyboardInterrupt:
         print("Stopped; existing restrictions and pending cloud work are retained.")
     finally:
-        if "pump" in locals() and pump.direct is not None:
-            pump.direct.close()
         if agent.routine is not None:
             agent.routine.save(agent.clock(), force=True)
         if sniffer is not None and sniffer.running:

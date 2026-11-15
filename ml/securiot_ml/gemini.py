@@ -1,5 +1,6 @@
 """Bounded Gemini JSON transport; credentials remain server-side."""
 import json
+from .usage_guard import request_json
 import os
 import urllib.parse
 import urllib.request
@@ -22,11 +23,7 @@ def generate(system, payload, schema, *, timeout=6):
         f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
         json.dumps(body).encode(), {'Content-Type': 'application/json',
                                    'x-goog-api-key': os.environ['GEMINI_API_KEY'].strip()})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        raw = response.read(65537)
-    if len(raw) > 65536:
-        raise ValueError('Gemini response too large')
-    candidate = json.loads(raw)['candidates'][0]
+    candidate = request_json(request, timeout=timeout)['candidates'][0]
     if candidate.get('finishReason') != 'STOP':
         raise ValueError('Incomplete or blocked response')
     text = ''.join(p.get('text', '') for p in candidate['content']['parts'] if not p.get('thought'))

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import gsap from 'gsap';
 import cytoscape, { type Core, type NodeSingular } from 'cytoscape';
 import { shortLabel } from '../lib/format';
 import type { DashDevice } from '../types';
@@ -22,6 +23,7 @@ export default function NetworkMap({ devices, rates, issueCounts = {}, onSelect 
   const graph = useRef<Core | null>(null);
   const select = useRef(onSelect); select.current = onSelect;
   const anchors = useRef<Record<string, { x: number; y: number }>>({});
+  const floats = useRef<Record<string, gsap.core.Tween>>({});
   const draggedAt = useRef(0);
   const reduced = useRef(false);
 
@@ -62,7 +64,7 @@ export default function NetworkMap({ devices, rates, issueCounts = {}, onSelect 
       const node = event.target as NodeSingular;
       if (node.id() !== 'router' && Date.now() - draggedAt.current > 250) select.current(node.id());
     });
-    cy.on('grab', 'node', (event) => { (event.target as NodeSingular).stop(true, false).style("opacity", 1); element.style.cursor = 'grabbing'; });
+    cy.on('grab', 'node', (event) => { floats.current[(event.target as NodeSingular).id()]?.pause(); (event.target as NodeSingular).stop(true, false).style("opacity", 1); element.style.cursor = 'grabbing'; });
     cy.on('drag', 'node', () => { draggedAt.current = Date.now(); });
     cy.on('dragfree', 'node', (event) => {
       const node = event.target as NodeSingular;
@@ -71,7 +73,7 @@ export default function NetworkMap({ devices, rates, issueCounts = {}, onSelect 
       if (!anchor) return;
       node.stop(true, false);
       if (reduced.current) node.position(anchor);
-      else node.animate({ position: anchor }, { duration: 650, easing: 'spring(350, 24)' as cytoscape.Css.TransitionTimingFunction });
+      else node.animate({ position: anchor }, { duration: 650, easing: 'spring(350, 24)' as cytoscape.Css.TransitionTimingFunction, complete:()=>floats.current[node.id()]?.resume() });
     });
     cy.on('mouseover', 'node', (event) => {
       element.style.cursor = 'grab';
@@ -92,6 +94,7 @@ export default function NetworkMap({ devices, rates, issueCounts = {}, onSelect 
     if (!reduced.current) frame = requestAnimationFrame(animate);
     const motion = (event: MediaQueryListEvent) => {
       reduced.current = event.matches;
+      Object.values(floats.current).forEach(tween=>event.matches?tween.pause():tween.resume());
       cy.nodes().style('transition-duration', event.matches ? 0 : .18);
       cancelAnimationFrame(frame);
       if (event.matches) cy.nodes().stop(true, true); else frame = requestAnimationFrame(animate);
@@ -101,16 +104,17 @@ export default function NetworkMap({ devices, rates, issueCounts = {}, onSelect 
       cy.resize();
       cy.getElementById('router').position({ x: element.clientWidth / 2, y: element.clientHeight / 2 });
       anchors.current = mapPositions(cy.nodes().not('.router').map(node => node.id()), element.clientWidth, element.clientHeight);
-      cy.nodes().not('.router').forEach(node => { if (!node.grabbed()) node.stop(true, false).style('opacity', 1).position(anchors.current[node.id()]); });
+      cy.nodes().not('.router').forEach(node => { if (!node.grabbed()) { node.stop(true, false).style('opacity', 1).position(anchors.current[node.id()]); if(!reduced.current)floats.current[node.id()]?.resume(); } });
     });
     resize.observe(element);
-    return () => { cancelAnimationFrame(frame); preference.removeEventListener?.('change', motion); resize.disconnect(); cy.destroy(); graph.current = null; };
+    return () => { cancelAnimationFrame(frame); preference.removeEventListener?.('change', motion); resize.disconnect(); Object.values(floats.current).forEach(tween=>tween.kill()); floats.current={}; cy.destroy(); graph.current = null; };
   }, []);
 
   useEffect(() => {
     const cy = graph.current, element = box.current;
     if (!cy || !element) return;
     anchors.current = mapPositions(devices.map(device => device.mac), element.clientWidth, element.clientHeight);
+    for (const id of Object.keys(floats.current)) if (!devices.some(device=>device.mac===id)) { floats.current[id].kill(); delete floats.current[id]; }
     cy.nodes().not('.router').filter(node => !devices.some(device => device.mac === node.id())).remove();
     const ink = css('--color-ink', '#000');
     for (const device of devices) {
@@ -121,11 +125,19 @@ export default function NetworkMap({ devices, rates, issueCounts = {}, onSelect 
       const existing = cy.getElementById(device.mac);
       if (existing.nonempty()) {
         existing.data(data);
-        if (!existing.grabbed() && !existing.animated()) existing.position(anchors.current[device.mac]);
+        if (!existing.grabbed() && !existing.animated() && !floats.current[device.mac]) existing.position(anchors.current[device.mac]);
       } else {
         const node = cy.add({ data, position: anchors.current[device.mac] });
         cy.add({ data: { id: `e-${device.mac}`, source: 'router', target: device.mac } });
         if (!reduced.current) node.style('opacity', 0).animate({ style: { opacity: 1 } }, { duration: 350 });
+      }
+      if (!floats.current[device.mac] && !reduced.current) {
+        const node=cy.getElementById(device.mac), drift={phase:0};
+        floats.current[device.mac]=gsap.to(drift,{phase:Math.PI*2,duration:5+Object.keys(floats.current).length*.35,repeat:-1,ease:'none',onUpdate:()=>{
+          if(node.grabbed()||node.animated()||reduced.current||document.hidden)return;
+          const anchor=anchors.current[device.mac];
+          if(anchor)node.position({x:anchor.x+Math.sin(drift.phase)*3,y:anchor.y+Math.cos(drift.phase)*4});
+        }});
       }
       cy.getElementById(`e-${device.mac}`).classes(device.status === 'quarantined' ? 'cut' : device.status === 'wan_blocked' ? 'blocked' : device.status === 'offline' ? 'offline' : 'flow');
     }
@@ -139,7 +151,7 @@ export default function NetworkMap({ devices, rates, issueCounts = {}, onSelect 
   }, [rates]);
 
   return <div role="group" aria-label="Home Network Map">
-    <div ref={box} className="h-[380px] w-full" aria-hidden="true" />
+    <div ref={box} className="h-[500px] w-full" aria-hidden="true" />
     <ul className="sr-only">{devices.map(device => <li key={device.mac}><button onClick={() => onSelect(device.mac)}>{shortLabel(device.label)}: {issueCounts[device.mac] ?? 0} Security Issues. Open Fixes.</button></li>)}</ul>
   </div>;
 }

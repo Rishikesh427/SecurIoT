@@ -117,7 +117,7 @@ button:focus-visible, summary:focus-visible { outline: 2px solid currentColor; o
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
 
-@keyframes companion-step { from { transform: translateX(-2px); } to { transform: translateX(2px); } }
-.turtle-companion [data-leg] { animation: companion-step .5s ease-in-out 6 alternate; }
-.turtle-companion [data-leg]:nth-of-type(2) { animation-delay: .25s; }
-@media (prefers-reduced-motion: reduce) { .turtle-companion [data-leg] { animation: none; } }
+html { scroll-behavior: smooth; }
+.arm-control[data-scanning="false"] { background: var(--color-ink); color: var(--color-white); }
+
+.overflow-y-auto { scroll-behavior: smooth; }

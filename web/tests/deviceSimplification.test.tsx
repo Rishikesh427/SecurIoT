@@ -9,17 +9,15 @@ vi.mock('../src/components/Advisor',()=>({DeviceAdvisor:()=> <div>Score</div>}))
 afterEach(cleanup);
 const device={mac:'02:00:00:00:00:01',ip:'10.42.0.2',name:'camera',label:'Camera',type:'camera',risk:75,band:'high',confidence:'low',status:'normal',ports:[23],reasons:[],dests:[],bytes_in:0,bytes_out:0,eol:false,default_creds:false,cloud_only:false,protected:false,simulated:true,last_seen:'2026-11-14T12:00:00Z',has_feed:false} as DashDevice;
 const issue={id:'test',title:'Change the Password',summary:'Hidden list caption',why:'Keep access private.',severity:'high',steps:['Change your password.'],technical:[]} as Issue;
-it('collapses recent activity and places icon-only audio in the device header',()=>{
+it('collapses recent activity and places icon-only audio beside the defenses heading',()=>{
   const event={id:'e',mac:device.mac,ts:device.last_seen,kind:'new_device',evidence:{},actions_taken:[],would_have:[],source:'agent'} as SecurEvent;
   render(<DeviceDetail device={device} events={[event]} onClose={vi.fn()} onAction={vi.fn()} busy={false} canAct={false} policy={null}/>);
   expect(screen.queryByText('Was first recorded on your network')).toBeNull();
   fireEvent.click(screen.getByRole('button',{name:'Recent Activity'}));
   expect(screen.getByText('Was first recorded on your network')).toBeTruthy();
   expect(screen.getByRole('heading',{name:'Defend Your Device'})).toBeTruthy();
-  const audio=screen.getByRole('button',{name:'Read Device'});
+  const audio=screen.getByRole('button',{name:'Read Device Defenses'});
   expect(audio.querySelector('.sr-only')).toBeTruthy();
-  expect(audio.closest('header')).toBeTruthy();
-  expect(screen.queryByRole('button', {name:'Read Device Defenses'})).toBeNull();
   expect(screen.queryByText('Read Fixes')).toBeNull();
 });
 it('removes list captions and labels the guide with icon-only speech',()=>{
