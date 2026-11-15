@@ -107,6 +107,8 @@ class CloudTests(unittest.TestCase):
         app = FastAPI()
         app.state.settings = SimpleNamespace(agent_api_key="test-key")
         app.state.db = self.db
+        # This wire-contract fixture does not start the application lifespan.
+        app.state.advisor = SimpleNamespace(decorate=lambda devices, events: devices)
         app.include_router(router(lambda: {"username": "test"}))
         self.http = TestClient(app)
         self.addCleanup(self.http.close)

@@ -77,6 +77,28 @@ def router(current_user):
     @routes.post('/actions', status_code=202)
     def action(body: ActionRequest, request: Request,
                idempotency_key: UUID | None = Header(default=None), user=Depends(current_user)):
-        return request.app.state.db.create_command(body, idempotency_key or uuid4(), user['username'])
+        command = request.app.state.db.create_command(body, idempotency_key or uuid4(), user['username'])
+        from api.settings import environment
+        url = environment().get('SECURIOT_ROUTER_URL', '').rstrip('/')
+        if not url:
+            return command
+        # The Pi executes on its single runtime writer. Never mark success merely
+        # because delivery succeeded; persist the returned execution result.
+        import json
+        import urllib.request
+        from fastapi.encoders import jsonable_encoder
+        from api.telemetry import Ack
+        try:
+            payload = json.dumps(jsonable_encoder({'command': command, 'policy': request.app.state.db.get_policy()['policy']})).encode()
+            outgoing = urllib.request.Request(url + '/actions', data=payload,
+                headers={'Content-Type': 'application/json', 'X-API-Key': request.app.state.settings.agent_api_key})
+            with urllib.request.urlopen(outgoing, timeout=28) as result:
+                ack = Ack.model_validate_json(result.read(65536))
+            request.app.state.db.ack(command['id'], ack)
+            return {**command, 'status': ack.status, 'detail': ack.detail}
+        except Exception:
+            # A lost response is uncertain, not a failed firewall operation.
+            # The durable Pi journal and normal sync reconcile the same command ID.
+            return {**command, 'status': 'pending', 'detail': 'Router result unavailable; check the audit log.'}
 
     return routes

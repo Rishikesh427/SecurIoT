@@ -35,6 +35,15 @@ class Database:
         with self.connect() as conn:
             return conn.execute("SELECT id, username, role, active FROM users WHERE id = %s", (user_id,)).fetchone()
 
+    def create_user(self, username, password_hash):
+        from uuid import uuid4
+        try:
+            with self.connect() as conn:
+                return conn.execute("INSERT INTO users(id,username,password_hash,role,active) VALUES (%s,%s,%s,'judge',true) RETURNING id,username,role,active",
+                                    (uuid4(), username, password_hash)).fetchone()
+        except psycopg.errors.UniqueViolation:
+            raise HTTPException(409, 'Username is already in use') from None
+
     def ingest(self, batch):
         counts = {'accepted_devices': 0, 'accepted_events': 0}
         with self.connect() as conn:

@@ -81,6 +81,8 @@ export interface ActionRequest {
 }
 
 export interface Command {
+  status?: "pending" | "applied" | "failed";
+  detail?: string;
   id: string;
   created_at: string;
   action: ActionName;

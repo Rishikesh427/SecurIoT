@@ -80,6 +80,7 @@ class LivePump:
         self.dropped = 0
         self._routine_dropped = 0
         self.next_poll = 0.0
+        self.direct = None
 
     def receive(self, packet):
         try:
@@ -92,6 +93,8 @@ class LivePump:
             for mac in self.agent.routine.windows:
                 self.agent.routine.flag(mac)
             self._routine_dropped = self.dropped
+        if self.direct is not None:
+            self.direct.drain()
         self.agent.routine_tick()
         try:
             self.handle(self.packets.get(timeout=wait))
@@ -130,6 +133,9 @@ def run_live(iface, devices, state_dir, armed=False, decoy_ips=(), model_mode="r
             discovery = DemoDiscovery(json.loads(Path(config_path).read_text()), agent, collector, cloud, iface)
             discovery.start()
         pump = LivePump(agent, collector, cloud, discovery=discovery)
+        if cloud is not None and os.environ.get("SECURIOT_DIRECT_CONTROL") == "1":
+            from .direct_control import DirectControl
+            pump.direct = DirectControl(cloud, api_key)
         mode = "mock actions" if agent.enforcer.simulated else "REAL Linux enforcement"
         print(f"SECURIOT LIVE on {iface}: {'ARMED' if armed else 'learning mode'} ({mode}); "
               f"{len(collector.windows)} known devices; 30 s automatic warmup. Ctrl+C to stop.")
@@ -150,6 +156,8 @@ def run_live(iface, devices, state_dir, armed=False, decoy_ips=(), model_mode="r
     except KeyboardInterrupt:
         print("Stopped; existing restrictions and pending cloud work are retained.")
     finally:
+        if "pump" in locals() and pump.direct is not None:
+            pump.direct.close()
         if agent.routine is not None:
             agent.routine.save(agent.clock(), force=True)
         if sniffer is not None and sniffer.running:

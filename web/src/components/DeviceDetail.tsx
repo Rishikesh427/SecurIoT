@@ -55,9 +55,10 @@ export function DeviceDetail({
       <aside className="relative flex h-full w-full max-w-[640px] animate-sheet-in flex-col overflow-y-auto bg-[#fbfbfd] shadow-[-20px_0_60px_rgba(0,0,0,0.08)]">
         <header className="sticky top-0 z-10 flex items-center justify-between border-b border-hairline bg-[#fbfbfd]/80 px-6 py-3 backdrop-blur-xl">
           <span className="text-[17px] font-medium text-ink-2">Device</span>
+          <div className="flex items-center gap-2"><ReadAloud text={`${device.label}. Score ${device.risk} out of 100. ${summary} ${steps.join(" ")}`} enabled={audioEnabled} label="Read Device" iconOnly />
           <Button variant="plain" className="h-8 px-2 text-[19px] font-semibold text-ink" onClick={onClose}>
             Done
-          </Button>
+          </Button></div>
         </header>
 
         <div className="space-y-6 px-6 pb-10 pt-6">
@@ -91,7 +92,7 @@ export function DeviceDetail({
           <DeviceAdvisor key={device.mac} device={device} audioEnabled={audioEnabled} />
 
           {steps.length > 0 && (
-            <Section title="Defend Your Device" action={<ReadAloud text={steps.join(" ")} enabled={audioEnabled} label="Read Device Defenses" iconOnly />} >
+            <Section title="Defend Your Device">
               <Card className="divide-y divide-hairline">
                 {steps.map((s, i) => (
                   <div key={s} className="flex gap-4 px-5 py-3.5">
@@ -107,7 +108,7 @@ export function DeviceDetail({
             <button
               onClick={() => setShowTech((v) => !v)}
               aria-expanded={showTech}
-              className="mb-2 flex w-full items-center justify-between px-1 text-[17px] font-semibold tracking-wide text-ink-3 hover:text-ink-2"
+              className="mb-2 flex w-full items-center justify-between px-1 text-[17px] font-normal tracking-wide text-ink-3 hover:text-ink-2"
             >
               Technical Details
               <ChevronDown size={16} className={`transition-transform duration-300 ${showTech ? "rotate-180" : ""}`} aria-hidden />
@@ -129,7 +130,7 @@ export function DeviceDetail({
           </section>
 
           <section>
-            <button type="button" onClick={() => setShowActivity(value => !value)} aria-expanded={showActivity} aria-controls="device-recent-activity" className="mb-2 flex w-full items-center justify-between px-1 font-semibold text-ink-3">
+            <button type="button" onClick={() => setShowActivity(value => !value)} aria-expanded={showActivity} aria-controls="device-recent-activity" className="mb-2 flex w-full items-center justify-between px-1 text-[17px] font-normal tracking-wide text-ink-3">
               Recent Activity<ChevronDown size={16} className={`transition-transform ${showActivity ? "rotate-180" : ""}`} aria-hidden />
             </button>
             {showActivity && <div id="device-recent-activity" className="animate-expand">
@@ -166,7 +167,7 @@ function Section({ title, aside, action, children }: { title: string; aside?: st
   return (
     <section>
       <div className="mb-2 flex items-baseline justify-between px-1">
-        <h3 className="text-[17px] font-semibold tracking-wide text-ink-3">{titleCase(title)}</h3>
+        <h3 className="text-[17px] font-normal tracking-wide text-ink-3">{titleCase(title)}</h3>
         {action}
         {aside && <span className="text-[16px] text-ink-3">{aside}</span>}
       </div>
