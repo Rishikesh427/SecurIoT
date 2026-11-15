@@ -8,6 +8,11 @@ __pycache__/
 web/dist/
 node_modules/
 
+# Internal deployment helper and local deployment state (never commit secrets).
+/safe_deploy.sh
+/safe_deploy.internal.md
+/.safe-deploy/
+
 # ML data and environments
 ml/data/raw/
 ml/.venv/

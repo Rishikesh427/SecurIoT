@@ -1,4 +1,10 @@
-# SecurIoT dashboard (`/web`)
+# CasaWarden dashboard (`/web`)
+
+> **Naming:** CasaWarden was previously called SecurIoT. The `securiot-web`
+> package name, browser storage keys, and existing UI/API labels may still use
+> the legacy name. They remain unchanged for compatibility with the current
+> implementation. See the
+> [project naming note](../README.md#project-name-and-compatibility).
 
 React + Vite + Tailwind. Person D's frontend from the v3.2 plan.
 

@@ -42,22 +42,22 @@ export function ContainmentPanel({ events, devices, now }: { events: SecurEvent[
   return (
     <Card>
       <div className="px-5 pb-4 pt-4">
-        <div className="text-[13px] font-medium text-ink-2">Time to containment</div>
+        <div className="text-[17px] font-medium text-ink-2">Time to containment</div>
         <div className="mt-1 flex items-baseline gap-1">
           <span
-            className={`text-[44px] font-semibold leading-none tracking-tight tabular-nums transition-colors ${
+            className={`text-[48px] font-semibold leading-none tracking-tight tabular-nums transition-colors ${
               running ? "text-warn" : seconds != null ? "text-ink" : "text-fill-2"
             }`}
           >
             {seconds != null ? seconds.toFixed(1) : "0.0"}
           </span>
-          <span className="text-[17px] font-medium text-ink-3">sec</span>
+          <span className="text-[21px] font-medium text-ink-3">sec</span>
         </div>
-        <div className="mt-1.5 text-[13px] text-ink-3">{label}</div>
+        <div className="mt-1.5 text-[17px] text-ink-3">{label}</div>
       </div>
       {focus && (
         <div className="border-t border-hairline px-5 py-3">
-          <div className="grid grid-cols-[1fr_auto_auto] gap-x-6 gap-y-2 text-[13px]">
+          <div className="grid grid-cols-[1fr_auto_auto] gap-x-6 gap-y-2 text-[17px]">
             <span className="text-ink-3">{shortLabel(focus.label)}</span>
             <span className="text-right text-ink-3">Before</span>
             <span className="text-right text-ink-3">Now</span>

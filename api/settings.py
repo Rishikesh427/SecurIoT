@@ -1,4 +1,4 @@
-"""Explicit environment precedence: process environment overrides api/.env."""
+"""Environment precedence: process > api/.env > repository .env."""
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -9,7 +9,7 @@ ENV_FILE = Path(__file__).with_name(".env")
 
 
 def environment():
-    return {**dotenv_values(ENV_FILE), **os.environ}
+    return {**dotenv_values(ENV_FILE.parent.parent / '.env'), **dotenv_values(ENV_FILE), **os.environ}
 
 
 @dataclass(frozen=True)

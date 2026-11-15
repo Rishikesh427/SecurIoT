@@ -1,5 +1,6 @@
 """Platform H4–8: database readiness, judge login, and reusable JWT auth."""
 from contextlib import asynccontextmanager
+import os
 from uuid import UUID
 
 import jwt
@@ -58,14 +59,21 @@ def create_app(settings=None, database=None):
     @asynccontextmanager
     async def lifespan(app):
         app.state.settings = settings or Settings.load()
+        # The ML helpers use process variables; preserve explicitly exported values.
+        for key in ('GEMINI_API_KEY', 'GEMINI_MODEL'):
+            if env.get(key):
+                os.environ.setdefault(key, env[key])
         from api.storage import Storage
         from api.explanations import ExplanationService
+        from api.advisor import AdvisorService
         app.state.db = database if database is not None else Storage(Database(app.state.settings), app.state.settings)
         app.state.explanations = ExplanationService()
+        app.state.advisor = AdvisorService()
         try:
             yield
         finally:
             app.state.explanations.close()
+            app.state.advisor.close()
             if isinstance(app.state.db, Storage):
                 app.state.db.close()
 
@@ -132,6 +140,8 @@ def create_app(settings=None, database=None):
     app.include_router(control_router(current_user))
     from api.audit import router as audit_router
     app.include_router(audit_router(current_user))
+    from api.advisor import router as advisor_router
+    app.include_router(advisor_router(current_user))
     return app
 
 

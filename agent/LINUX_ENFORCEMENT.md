@@ -29,7 +29,7 @@ acceleration on this router: it can bypass the forwarding path. The preflight
 rejects existing nftables flowtables and bridged AP/uplink interfaces. External
 network managers, hardware forwarding, tc redirects, and changes to the AP after
 startup need separate validation. Keep internet sharing's existing firewall/NAT
-rules in place; SecurIoT adds only its own restrictions.
+rules in place; CasaWarden adds only its own restrictions.
 
 ## Configuration
 

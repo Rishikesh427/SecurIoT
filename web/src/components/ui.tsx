@@ -1,4 +1,5 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { titleCase } from "../lib/titles";
 import { bandColor, statusStyle } from "../lib/format";
 import type { Band, DeviceStatus } from "../types";
 
@@ -33,7 +34,7 @@ export function RiskRing({ risk, band, size = 44 }: { risk: number; band: Band; 
 export function Status({ status }: { status: DeviceStatus }) {
   const s = statusStyle[status];
   return (
-    <span className={`inline-flex items-center gap-1.5 text-[13px] font-medium ${s.text}`}>
+    <span className={`inline-flex items-center gap-1.5 text-[17px] font-medium ${s.text}`}>
       <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
       {s.label}
     </span>
@@ -47,7 +48,7 @@ export function Tag({ children, tone = "neutral" }: { children: ReactNode; tone?
     warn: "bg-warn/10 text-warn",
     ok: "bg-ok/10 text-ok",
   };
-  return <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${tones[tone]}`}>{children}</span>;
+  return <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[15px] font-medium ${tones[tone]}`}>{children}</span>;
 }
 
 export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
@@ -60,8 +61,8 @@ export function Card({ children, className = "" }: { children: ReactNode; classN
 
 export function SectionTitle({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
-    <div className="mb-3 flex items-end justify-between px-1">
-      <h2 className="text-[19px] font-semibold tracking-tight text-ink">{children}</h2>
+    <div className="mb-3 flex flex-wrap items-end justify-between gap-3 px-1">
+      <h2 className="text-[23px] font-semibold tracking-tight text-ink">{typeof children === "string" ? titleCase(children) : children}</h2>
       {action}
     </div>
   );
@@ -78,7 +79,7 @@ export function Button({ variant = "secondary", className = "", ...props }: Butt
   return (
     <button
       {...props}
-      className={`inline-flex h-9 items-center justify-center gap-2 rounded-full px-4 text-[14px] font-medium transition-all duration-200 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-35 ${variants[variant]} ${className}`}
+      className={`inline-flex h-9 items-center justify-center gap-2 rounded-full px-4 text-[18px] font-medium transition-all duration-200 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-35 ${variants[variant]} ${className}`}
     />
   );
 }
@@ -111,8 +112,8 @@ export function Row({ label, detail, children, onClick }: { label: ReactNode; de
       className={`flex min-h-[52px] w-full items-center justify-between gap-4 px-5 py-3 text-left ${onClick ? "transition-colors hover:bg-fill/70" : ""}`}
     >
       <div className="min-w-0">
-        <div className="text-[15px] text-ink">{label}</div>
-        {detail && <div className="mt-0.5 text-[13px] text-ink-2">{detail}</div>}
+        <div className="text-[19px] text-ink">{label}</div>
+        {detail && <div className="mt-0.5 text-[17px] text-ink-2">{detail}</div>}
       </div>
       {children}
     </Comp>
@@ -144,7 +145,7 @@ export function Segmented<T extends string>({ value, options, onChange }: { valu
         <button
           key={o.value}
           onClick={() => onChange(o.value)}
-          className={`relative z-10 rounded-full px-4 py-1.5 text-[13px] font-medium transition-colors ${value === o.value ? "text-ink" : "text-ink-2 hover:text-ink"}`}
+          className={`relative z-10 rounded-full px-4 py-1.5 text-[17px] font-medium transition-colors ${value === o.value ? "text-ink" : "text-ink-2 hover:text-ink"}`}
         >
           {o.label}
         </button>

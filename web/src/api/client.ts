@@ -1,7 +1,7 @@
 // One client for both modes. Mock mode (in-browser, no backend) is the default
 // for `npm run dev`; production builds talk to the API unless VITE_USE_MOCK=true.
 import { mockServer } from "../mock/mockServer";
-import type { ActionRequest, AuditEntry, AuditRun, Command, Device, FeedMeta, Policy, SecurEvent, StorageStatus, TokenResponse } from "../types";
+import type { ActionRequest, AdvisorAnswer, AdvisorTriage, AdvisorTurn, AuditEntry, AuditRun, Command, Device, FeedMeta, Policy, SecurEvent, StorageStatus, TokenResponse } from "../types";
 
 const env = import.meta.env;
 
@@ -52,20 +52,29 @@ function authHeaders(): Record<string, string> {
 let policyETag: string | null = null;
 
 async function http<T>(path: string, init: RequestInit = {}, base = API_BASE): Promise<T> {
-  const res = await fetch(`${base}${path}`, {
-    ...init,
-    signal: init.signal ?? AbortSignal.timeout(15000),
-    cache: "no-store",
-    headers: { "Content-Type": "application/json", ...authHeaders(), ...init.headers },
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => null);
-    throw new ApiError(res.status, typeof body?.detail === "string" ? body.detail : `${res.status} ${res.statusText}`);
+  const timeoutMs = path === "/audit/run" ? 30000 : 15000;
+  try {
+    const res = await fetch(`${base}${path}`, {
+      ...init, signal: init.signal ?? AbortSignal.timeout(timeoutMs), cache: "no-store",
+      headers: { "Content-Type": "application/json", ...authHeaders(), ...init.headers },
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new ApiError(res.status, typeof body?.detail === "string" ? body.detail : `${res.status} ${res.statusText}`);
+    }
+    if (path === "/policy") policyETag = res.headers.get("ETag");
+    if (res.status === 204) return undefined as T;
+    if (!res.headers.get("content-type")?.includes("json")) throw new ApiError(404, "Not an API response; check API routing.");
+    return await res.json();
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    const name = error && typeof error === "object" && "name" in error ? String(error.name) : "";
+    const route = path.split("?")[0];
+    if (name === "TimeoutError" || name === "AbortError") {
+      throw new ApiError(0, `${route} did not respond within ${timeoutMs / 1000}s. Check the API/database connection. A submitted command may still have been received.`);
+    }
+    throw new ApiError(0, `Cannot reach ${route}. Check the API connection; agent connectivity is unknown.`);
   }
-  if (path === "/policy") policyETag = res.headers.get("ETag");
-  if (res.status === 204) return undefined as T;
-  if (!res.headers.get("content-type")?.includes("json")) throw new ApiError(404, "Not an API response");
-  return res.json();
 }
 
 /**
@@ -73,8 +82,8 @@ async function http<T>(path: string, init: RequestInit = {}, base = API_BASE): P
  * an existing POST route with 405 and on an unknown route with 404.
  */
 async function routeExists(path: string): Promise<boolean> {
-  const res = await fetch(`${API_BASE}${path}`, { headers: authHeaders() }).catch(() => null);
-  return !!res && res.status !== 404;
+  const res = await fetch(`${API_BASE}${path}`, { headers: authHeaders(), signal: AbortSignal.timeout(8000) }).catch(() => null);
+  return !!res && (res.ok || res.status === 405);
 }
 
 export const api = {
@@ -84,6 +93,9 @@ export const api = {
       : http<TokenResponse>("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
 
   devices: () => (USE_MOCK ? mockServer.getDevices() : http<Device[]>("/devices")),
+  advisorChat: (mac: string, question: string, history: AdvisorTurn[]) =>
+    http<AdvisorAnswer>("/advisor/chat", { method: "POST", body: JSON.stringify({ mac, question, history }) }),
+  advisorTriage: () => http<AdvisorTriage>("/advisor/triage"),
   events: () => (USE_MOCK ? mockServer.getEvents() : http<SecurEvent[]>("/events?limit=100")),
   policy: () => (USE_MOCK ? mockServer.getPolicy() : http<Policy>("/policy")),
   savePolicy: (p: Policy) => {
@@ -103,7 +115,7 @@ export const api = {
   capabilities: async () =>
     USE_MOCK
       ? { actions: true, auditRun: true }
-      : { actions: await routeExists("/actions"), auditRun: await routeExists("/audit/run") },
+      : Promise.all([routeExists("/actions"), routeExists("/audit/run")]).then(([actions, auditRun]) => ({ actions, auditRun })),
 
   hasFeed: () => USE_MOCK || FEED_BASE != null,
   /** null when there's no feed source configured. */

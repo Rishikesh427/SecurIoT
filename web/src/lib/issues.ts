@@ -40,7 +40,7 @@ export function deriveIssues(
       id: `contained:${d.mac}:${incident?.id ?? d.last_seen}`,
       severity: "critical",
       title: `${label} was cut off`,
-      summary: `It started attacking your network, so SecurIoT isolated it. It's still infected until you clean it up.`,
+      summary: `It started attacking your network, so CasaWarden isolated it. It's still infected until you clean it up.`,
       why:
         ai?.source === "gemini"
           ? `${ai.body} Isolation stops the attack from spreading, but whatever infected the device is still on it.`
@@ -80,9 +80,9 @@ export function deriveIssues(
       id: "learning_mode",
       severity: "high",
       title: "Automatic protection is off",
-      summary: "SecurIoT is watching, but it won't stop an attack on its own.",
+      summary: "CasaWarden is watching, but it won't stop an attack on its own.",
       why: "Attacks spread in seconds. With protection on, a misbehaving device is cut off before you'd notice.",
-      steps: ["Turn on automatic protection.", "SecurIoT will isolate any device that starts attacking your network. You can undo it with Restore."],
+      steps: ["Turn on automatic protection.", "CasaWarden will isolate any device that starts attacking your network. You can undo it with Restore."],
       action: { kind: "turn_on_protection", label: "Turn on" },
       technical: ["policy.learning_mode: true"],
     });

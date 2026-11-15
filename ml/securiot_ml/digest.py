@@ -49,3 +49,26 @@ def digest(history):
                     'Containment does not fix a device; restore does not mean it is safe. '
                     'Check current device status before taking further action.')
     return {'summary': ' '.join(sections)}
+
+
+def consumer_digest(history):
+    """Three short bullets from the same audit window, excluding demo examples."""
+    unique = {str(row['id']): row for row in history}
+    real = [row for row in unique.values() if row['actor'] not in ('simulator', 'seeded-demo')]
+    examples = len(unique) - len(real)
+    counts = Counter((row['action'], row['outcome']) for row in real)
+    alerts = sum(count for (action, _), count in counts.items() if action.startswith('detected:'))
+    restrictions = sum(counts[action, 'applied'] for action in ('block_wan', 'quarantine'))
+    restores = sum(counts[action, 'applied'] for action in ('restore', 'restore_all'))
+    pending = sum(count for (action, outcome), count in counts.items() if outcome == 'requested' and not action.startswith('detected:'))
+    failed = sum(count for (action, outcome), count in counts.items() if outcome == 'failed' and not action.startswith('detected:'))
+    proposed = sum(count for (action, outcome), count in counts.items() if outcome == 'would_have' and not action.startswith('detected:'))
+    def count(number, singular, plural=None):
+        return f"{number} {singular if number == 1 else (plural or singular + 's')}"
+
+    return [
+        f"{count(alerts, 'warning')} in the available history. A warning alone does not prove an attack."
+        + (f" {count(examples, 'demo/sample entry', 'demo/sample entries')} excluded." if examples else ''),
+        f"Access was reported blocked {count(restrictions, 'time')} and restored {count(restores, 'time')}. Blocking access does not fix a device.",
+        f"{count(pending, 'request')} still waiting; {failed} failed; {count(proposed, 'suggested action')} not taken. Check the audit log for details.",
+    ]

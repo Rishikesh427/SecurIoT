@@ -27,7 +27,7 @@ export function StorageBadge() {
         : ["Demo data", "bg-ink-3", "Mock mode: built-in sample data, nothing is sent to a server."];
 
   return (
-    <span title={title} className="hidden items-center gap-1.5 rounded-full bg-fill px-3 py-1 text-[12px] font-medium text-ink-2 md:inline-flex">
+    <span title={title} className="hidden items-center gap-1.5 rounded-full bg-fill px-3 py-1 text-[16px] font-medium text-ink-2 md:inline-flex">
       <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
       {label}
     </span>

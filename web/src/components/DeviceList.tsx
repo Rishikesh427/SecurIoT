@@ -84,7 +84,7 @@ export function DeviceList({
 
       <Card className="overflow-hidden">
         {view === "map" ? (
-          <Suspense fallback={<div className="flex h-[440px] items-center justify-center text-[14px] text-ink-3">Loading map</div>}>
+          <Suspense fallback={<div className="flex h-[440px] items-center justify-center text-[18px] text-ink-3">Loading map</div>}>
             <NetworkMap devices={devices} rates={latestRates} onSelect={onSelect} />
           </Suspense>
         ) : (
@@ -102,22 +102,23 @@ export function DeviceList({
                     }`}
                   >
                     <span className={`rounded-full ${isFresh ? "animate-pulse-ring" : ""}`}>
-                      <RiskRing risk={d.risk} band={d.band} />
+                      <RiskRing risk={d.risk_adjusted ?? d.risk} band={d.band} />
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="truncate text-[15px] font-medium text-ink">{d.label}</span>
+                        <span className="truncate text-[19px] font-medium text-ink">{d.label}</span>
                         {isFresh && <Tag tone="ok">New</Tag>}
                         {d.simulated && <Tag>Simulated</Tag>}
                         {d.protected && <Tag>Protected</Tag>}
                       </div>
                       <div className="mt-0.5">
                         <Status status={d.status} />
+                        {d.ai?.status === "ready" && <p className="text-[15px] text-ink-3">Rules {d.risk} · AI {d.ai.delta >= 0 ? "+" : ""}{d.ai.delta} (max ±10)</p>}
                       </div>
                     </div>
                     <div className="hidden flex-col items-end gap-0.5 sm:flex">
                       <Sparkline data={series} muted={d.status === "quarantined" || d.status === "offline"} color={isContained(d.status) ? "var(--color-bad)" : "var(--color-ink-2)"} />
-                      <span className="text-[11px] tabular-nums text-ink-3">{rate(now)}</span>
+                      <span className="text-[15px] tabular-nums text-ink-3">{rate(now)}</span>
                     </div>
                     <Chevron />
                   </button>

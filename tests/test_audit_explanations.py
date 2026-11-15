@@ -134,7 +134,7 @@ def test_learning_mode_and_simulator_audit_do_not_claim_containment():
 def test_explanations_are_nonblocking_deduplicated_and_cached(monkeypatch):
     import api.explanations as module
     calls = []
-    def generated(event, device):
+    def generated(event, device, **kwargs):
         calls.append(event['id'])
         return {'plain_language':'Generated once.','recommended_next_step':'Review it.'}
     monkeypatch.setattr(module,'explain',generated)
@@ -159,3 +159,20 @@ def test_unconfigured_explanation_uses_template_without_work():
     assert result['explanation']['plain_language']
     assert not service.pending
     service.close()
+
+
+def test_consumer_audit_returns_exactly_three_bullets_and_matches_contract():
+    from jsonschema import Draft202012Validator
+    db = MemoryDatabase(CONFIG)
+    try:
+        with TestClient(create_app(CONFIG, db)) as client:
+            login = client.post('/auth/login', json={'username': CONFIG.judge_username, 'password': CONFIG.judge_password})
+            response = client.post('/audit/run', headers={'Authorization': 'Bearer ' + login.json()['access_token']})
+            assert response.status_code == 200
+            body = response.json()
+            assert len(body['bullets']) == 3
+            assert all(isinstance(bullet, str) and bullet for bullet in body['bullets'])
+            schema = json.loads((Path(__file__).parents[1] / 'contract/schemas.json').read_text())
+            Draft202012Validator({**schema, '$ref': '#/$defs/AuditRunResponse'}).validate(body)
+    finally:
+        db.close()

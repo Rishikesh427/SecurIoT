@@ -1,231 +1,145 @@
-// Map view: the router in the middle, devices around it (Cytoscape.js).
-// Links animate while traffic flows, turn red and dashed when a device is cut off,
-// and new devices slide out from the router with a pulse.
-import { useEffect, useRef } from "react";
-import cytoscape, { type Core, type NodeSingular } from "cytoscape";
-import { shortLabel, statusStyle } from "../lib/format";
-import type { DashDevice } from "../types";
+import { useEffect, useRef } from 'react';
+import cytoscape, { type Core, type NodeSingular } from 'cytoscape';
+import { shortLabel } from '../lib/format';
+import type { DashDevice } from '../types';
 
-const INK = "#1d1d1f";
-const HAIRLINE = "#d2d2d7";
-const COLORS = { low: "#28a745", medium: "#c77700", high: "#e5332a" } as const;
-const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif';
+const COLORS = { low: '#28a745', medium: '#c77700', high: '#e5332a' } as const;
+const uri = (svg: string) => `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+const css = (name: string, fallback: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 
-const svgUri = (svg: string) => `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
-const riskBadge = (risk: number) =>
-  svgUri(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><text x="24" y="30" text-anchor="middle" font-family="-apple-system,Helvetica,Arial,sans-serif" font-size="16" font-weight="600" fill="${INK}">${risk}</text></svg>`,
-  );
-const ROUTER_ICON = svgUri(
-  `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 32 32"><path d="M16 9l6 2.6v4.3c0 3.9-2.6 7-6 8.1-3.4-1.1-6-4.2-6-8.1v-4.3z" fill="#fff"/></svg>`,
-);
-
-function nodeData(d: DashDevice) {
-  const cut = d.status === "quarantined" || d.status === "wan_blocked";
-  return {
-    id: d.mac,
-    label: `${shortLabel(d.label)}\n${statusStyle[d.status].label}`,
-    color: cut ? COLORS.high : COLORS[d.band],
-    badge: riskBadge(d.risk),
-  };
+export function mapPositions(macs: string[], width: number, height: number) {
+  const radius = Math.max(80, Math.min(width, height) * .32);
+  return Object.fromEntries([...macs].sort().map((mac, index, all) => {
+    const angle = -Math.PI / 2 + index / Math.max(1, all.length) * Math.PI * 2;
+    return [mac, { x: width / 2 + radius * Math.cos(angle), y: height / 2 + radius * Math.sin(angle) }];
+  }));
 }
 
-function edgeClass(d: DashDevice) {
-  return d.status === "quarantined" ? "cut" : d.status === "wan_blocked" ? "blocked" : d.status === "offline" ? "offline" : "flow";
-}
-
-/** Devices on a circle around the router, in a stable order. */
-function positions(macs: string[], w: number, h: number) {
-  const r = Math.max(110, Math.min(w, h) * 0.34);
-  const sorted = [...macs].sort();
-  return Object.fromEntries(
-    sorted.map((mac, i) => {
-      const a = -Math.PI / 2 + (i / Math.max(1, sorted.length)) * Math.PI * 2;
-      return [mac, { x: w / 2 + r * Math.cos(a), y: h / 2 + r * Math.sin(a) }];
-    }),
-  );
-}
-
-export default function NetworkMap({
-  devices,
-  rates,
-  onSelect,
-}: {
-  devices: DashDevice[];
-  rates: Record<string, number>;
-  onSelect: (mac: string) => void;
+export default function NetworkMap({ devices, rates, issueCounts = {}, onSelect }: {
+  devices: DashDevice[]; rates: Record<string, number>; issueCounts?: Record<string, number>; onSelect: (mac: string) => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
-  const cyRef = useRef<Core | null>(null);
-  const selectRef = useRef(onSelect);
-  selectRef.current = onSelect;
+  const graph = useRef<Core | null>(null);
+  const select = useRef(onSelect); select.current = onSelect;
+  const anchors = useRef<Record<string, { x: number; y: number }>>({});
+  const draggedAt = useRef(0);
+  const reduced = useRef(false);
 
-  // Create the graph once.
   useEffect(() => {
-    const el = box.current!;
+    const element = box.current!;
+    const ink = css('--color-ink', '#000');
+    const background = css('--color-white', '#fff');
+    const line = css('--color-ink-3', '#6b6b70');
+    const preference = matchMedia('(prefers-reduced-motion: reduce)');
+    reduced.current = preference.matches;
     const cy = cytoscape({
-      container: el,
-      elements: [{ data: { id: "router", label: "Router", color: INK, badge: ROUTER_ICON }, position: { x: el.clientWidth / 2, y: el.clientHeight / 2 }, classes: "router" }],
-      // Positions are computed in pixels, so keep the view at 1:1 (no auto-fit).
-      layout: { name: "preset", fit: false },
-      zoom: 1,
-      pan: { x: 0, y: 0 },
-      minZoom: 1,
-      maxZoom: 1,
-      userZoomingEnabled: false,
-      userPanningEnabled: false,
-      boxSelectionEnabled: false,
-      autoungrabify: true,
+      container: element, layout: { name: 'preset', fit: false },
+      elements: [{ data: { id: 'router', label: 'Router' }, classes: 'router', position: { x: element.clientWidth / 2, y: element.clientHeight / 2 } }],
+      zoom: 1, minZoom: 1, maxZoom: 1, userZoomingEnabled: false, userPanningEnabled: false,
+      boxSelectionEnabled: false, autoungrabify: false,
       style: [
-        {
-          selector: "node",
-          style: {
-            width: 48,
-            height: 48,
-            "background-color": "#ffffff",
-            "background-image": "data(badge)",
-            "background-fit": "contain",
-            "border-width": 3,
-            "border-color": "data(color)",
-            label: "data(label)",
-            "text-valign": "bottom",
-            "text-margin-y": 8,
-            "text-wrap": "wrap",
-            "text-max-width": "140px",
-            "font-family": FONT,
-            "font-size": 12,
-            "line-height": 1.35,
-            color: INK,
-            "overlay-shape": "ellipse",
-            "overlay-opacity": 0,
-            "transition-property": "border-color, background-color",
-            "transition-duration": 0.6,
-            // overlay-shape exists in Cytoscape 3.30 but not in @types/cytoscape yet.
-          } as cytoscape.Css.Node,
-        },
-        {
-          selector: "node.router",
-          style: {
-            width: 64,
-            height: 64,
-            "background-color": INK,
-            "background-image": ROUTER_ICON,
-            "border-width": 0,
-            "font-weight": 600,
-          },
-        },
-        {
-          selector: "edge",
-          style: {
-            width: 2,
-            "curve-style": "straight",
-            "line-color": HAIRLINE,
-            "line-style": "dashed",
-            "line-dash-pattern": [6, 6],
-            "transition-property": "line-color, opacity, width",
-            "transition-duration": 0.6,
-          },
-        },
-        { selector: "edge.cut", style: { "line-color": COLORS.high, opacity: 0.45, "line-dash-pattern": [3, 7] } },
-        { selector: "edge.blocked", style: { "line-color": COLORS.medium, opacity: 0.6 } },
-        { selector: "edge.offline", style: { "line-color": HAIRLINE, opacity: 0.4, "line-dash-pattern": [2, 8] } },
+        { selector: 'node', style: {
+          width: 56, height: 56, 'background-color': background, 'background-image': 'data(badge)', 'background-fit': 'contain',
+          'border-width': 3, 'border-color': 'data(color)', label: 'data(label)',
+          'text-valign': 'top', 'text-halign': 'center', 'text-margin-y': -14,
+          'font-size': 16, 'font-family': '-apple-system, Helvetica, Arial, sans-serif', 'font-weight': 600,
+          'text-wrap': 'wrap', 'text-max-width': '170px', color: ink,
+          'text-background-color': background, 'text-background-opacity': 1, 'text-background-padding': '5px',
+          'z-index': 10, 'overlay-opacity': 0,
+          'transition-property': 'width, height, border-width', 'transition-duration': reduced.current ? 0 : .18,
+        } as cytoscape.Css.Node },
+        { selector: 'node.router', style: { width: 68, height: 68, 'background-color': ink, 'border-width': 0,
+          'background-image': uri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path fill="${background}" d="M16 5l9 4v7c0 6-5 10-9 12-4-2-9-6-9-12V9z"/></svg>`) } },
+        { selector: 'edge', style: { width: 2, 'curve-style': 'straight', 'line-color': line, 'line-style': 'dashed', 'line-dash-pattern': [6, 6], 'z-index': 0 } },
+        { selector: 'edge.cut', style: { 'line-color': COLORS.high, opacity: .45 } },
+        { selector: 'edge.blocked', style: { 'line-color': COLORS.medium, opacity: .6 } },
+        { selector: 'edge.offline', style: { opacity: .35 } },
       ],
     });
-    cy.on("tap", "node", (e) => {
-      const id = (e.target as NodeSingular).id();
-      if (id !== "router") selectRef.current(id);
+    graph.current = cy;
+    cy.getElementById('router').ungrabify();
+    cy.on('tap', 'node', (event) => {
+      const node = event.target as NodeSingular;
+      if (node.id() !== 'router' && Date.now() - draggedAt.current > 250) select.current(node.id());
     });
-    cy.on("mouseover", "node", () => (el.style.cursor = "pointer"));
-    cy.on("mouseout", "node", () => (el.style.cursor = "default"));
-    cyRef.current = cy;
-
-    // Traffic flowing along the live links.
-    let offset = 0;
-    let raf = 0;
-    const tick = () => {
-      offset = (offset - 0.6) % 1200;
-      cy.edges(".flow").style("line-dash-offset", offset);
-      raf = requestAnimationFrame(tick);
+    cy.on('grab', 'node', (event) => { (event.target as NodeSingular).stop(true, false).style("opacity", 1); element.style.cursor = 'grabbing'; });
+    cy.on('drag', 'node', () => { draggedAt.current = Date.now(); });
+    cy.on('dragfree', 'node', (event) => {
+      const node = event.target as NodeSingular;
+      const anchor = anchors.current[node.id()];
+      draggedAt.current = Date.now(); element.style.cursor = 'grab';
+      if (!anchor) return;
+      node.stop(true, false);
+      if (reduced.current) node.position(anchor);
+      else node.animate({ position: anchor }, { duration: 650, easing: 'spring(350, 24)' as cytoscape.Css.TransitionTimingFunction });
+    });
+    cy.on('mouseover', 'node', (event) => {
+      element.style.cursor = 'grab';
+      const node = event.target as NodeSingular;
+      if (node.id() !== 'router' && !reduced.current) node.style({ width: 64, height: 64, 'border-width': 4 });
+    });
+    cy.on('mouseout', 'node', (event) => {
+      element.style.cursor = 'default';
+      const node = event.target as NodeSingular;
+      if (node.id() !== 'router') node.style({ width: 56, height: 56, 'border-width': 3 });
+    });
+    let frame = 0, offset = 0;
+    const animate = () => {
+      if (!reduced.current && !document.hidden) cy.edges('.flow').style('line-dash-offset', offset = (offset - .5) % 1200);
+      frame = requestAnimationFrame(animate);
     };
-    raf = requestAnimationFrame(tick);
-
-    const ro = new ResizeObserver(() => {
+    // Reduced-motion users get static links and immediate snap-back.
+    if (!reduced.current) frame = requestAnimationFrame(animate);
+    const motion = (event: MediaQueryListEvent) => {
+      reduced.current = event.matches;
+      cy.nodes().style('transition-duration', event.matches ? 0 : .18);
+      cancelAnimationFrame(frame);
+      if (event.matches) cy.nodes().stop(true, true); else frame = requestAnimationFrame(animate);
+    };
+    preference.addEventListener?.('change', motion);
+    const resize = new ResizeObserver(() => {
       cy.resize();
-      const w = el.clientWidth;
-      const h = el.clientHeight;
-      cy.getElementById("router").position({ x: w / 2, y: h / 2 });
-      const pos = positions(cy.nodes().not(".router").map((n) => n.id()), w, h);
-      cy.nodes().not(".router").forEach((n) => {
-        n.position(pos[n.id()]);
-      });
+      cy.getElementById('router').position({ x: element.clientWidth / 2, y: element.clientHeight / 2 });
+      anchors.current = mapPositions(cy.nodes().not('.router').map(node => node.id()), element.clientWidth, element.clientHeight);
+      cy.nodes().not('.router').forEach(node => { if (!node.grabbed()) node.stop(true, false).style('opacity', 1).position(anchors.current[node.id()]); });
     });
-    ro.observe(el);
-
-    return () => {
-      cancelAnimationFrame(raf);
-      ro.disconnect();
-      cy.destroy();
-      cyRef.current = null;
-    };
+    resize.observe(element);
+    return () => { cancelAnimationFrame(frame); preference.removeEventListener?.('change', motion); resize.disconnect(); cy.destroy(); graph.current = null; };
   }, []);
 
-  // Keep the graph in sync with the device list.
   useEffect(() => {
-    const cy = cyRef.current;
-    const el = box.current;
-    if (!cy || !el) return;
-    const w = el.clientWidth;
-    const h = el.clientHeight;
-    const center = { x: w / 2, y: h / 2 };
-    const pos = positions(devices.map((d) => d.mac), w, h);
-    const firstRender = cy.nodes().length === 1;
-
-    cy.batch(() => {
-      cy.nodes()
-        .not(".router")
-        .filter((n) => !devices.some((d) => d.mac === n.id()))
-        .remove();
-    });
-
-    for (const d of devices) {
-      const existing = cy.getElementById(d.mac);
+    const cy = graph.current, element = box.current;
+    if (!cy || !element) return;
+    anchors.current = mapPositions(devices.map(device => device.mac), element.clientWidth, element.clientHeight);
+    cy.nodes().not('.router').filter(node => !devices.some(device => device.mac === node.id())).remove();
+    const ink = css('--color-ink', '#000');
+    for (const device of devices) {
+      const count = issueCounts[device.mac] ?? 0;
+      const color = ['quarantined', 'wan_blocked'].includes(device.status) ? COLORS.high : COLORS[device.band];
+      const data = { id: device.mac, label: shortLabel(device.label), color,
+        badge: uri(`<svg xmlns="http://www.w3.org/2000/svg" width="56" height="56"><text x="28" y="36" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="20" font-weight="600" fill="${ink}">${count}</text></svg>`) };
+      const existing = cy.getElementById(device.mac);
       if (existing.nonempty()) {
-        existing.data(nodeData(d));
-        const edge = cy.getElementById(`e-${d.mac}`);
-        edge.classes(edgeClass(d));
-        const p = pos[d.mac];
-        const cur = existing.position();
-        if (Math.abs(cur.x - p.x) > 1 || Math.abs(cur.y - p.y) > 1) existing.animate({ position: p }, { duration: 600, easing: "ease-out-cubic" });
-        continue;
+        existing.data(data);
+        if (!existing.grabbed() && !existing.animated()) existing.position(anchors.current[device.mac]);
+      } else {
+        const node = cy.add({ data, position: anchors.current[device.mac] });
+        cy.add({ data: { id: `e-${device.mac}`, source: 'router', target: device.mac } });
+        if (!reduced.current) node.style('opacity', 0).animate({ style: { opacity: 1 } }, { duration: 350 });
       }
-      const node = cy.add({ data: nodeData(d), position: firstRender ? pos[d.mac] : center });
-      cy.add({ data: { id: `e-${d.mac}`, source: "router", target: d.mac }, classes: edgeClass(d) });
-      if (!firstRender) {
-        // New device: slide out from the router, then pulse.
-        node.style("opacity", 0);
-        node.animate({ position: pos[d.mac], style: { opacity: 1 } }, { duration: 700, easing: "ease-out-cubic" });
-        const pulse = (n: number) => {
-          if (n === 0 || node.removed()) return;
-          node
-            .style({ "overlay-color": COLORS.low, "overlay-opacity": 0.25, "overlay-padding": 0 })
-            .animate({ style: { "overlay-opacity": 0, "overlay-padding": 16 } }, { duration: 900, complete: () => pulse(n - 1) });
-        };
-        setTimeout(() => pulse(3), 700);
-        // If animation frames were paused (background tab), don't leave the tint behind.
-        setTimeout(() => !node.removed() && node.style({ opacity: 1, "overlay-opacity": 0 }).position(pos[d.mac]), 4500);
-      }
+      cy.getElementById(`e-${device.mac}`).classes(device.status === 'quarantined' ? 'cut' : device.status === 'wan_blocked' ? 'blocked' : device.status === 'offline' ? 'offline' : 'flow');
     }
-  }, [devices]);
+  }, [devices, issueCounts]);
 
-  // Thicker links for busier devices.
   useEffect(() => {
-    const cy = cyRef.current;
+    const cy = graph.current;
     if (!cy) return;
-    const max = Math.max(1, ...Object.values(rates));
-    for (const [mac, r] of Object.entries(rates)) {
-      cy.getElementById(`e-${mac}`).style("width", 1.5 + (r / max) * 3);
-    }
+    const maximum = Math.max(1, ...Object.values(rates));
+    for (const [mac, value] of Object.entries(rates)) cy.getElementById(`e-${mac}`).style('width', 1.5 + value / maximum * 3);
   }, [rates]);
 
-  return <div ref={box} className="h-[440px] w-full" role="img" aria-label="Map of devices connected to the router" />;
+  return <div role="group" aria-label="Home Network Map">
+    <div ref={box} className="h-[500px] w-full" aria-hidden="true" />
+    <ul className="sr-only">{devices.map(device => <li key={device.mac}><button onClick={() => onSelect(device.mac)}>{shortLabel(device.label)}: {issueCounts[device.mac] ?? 0} Security Issues. Open Fixes.</button></li>)}</ul>
+  </div>;
 }

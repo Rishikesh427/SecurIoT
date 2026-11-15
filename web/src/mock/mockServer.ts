@@ -196,16 +196,12 @@ export const mockServer = {
   async runAudit(): Promise<AuditRun> {
     guard();
     await delay(900);
-    const contained = state.events.filter((e) => e.actions_taken.length).length;
-    const cam = device(CAMERA_MAC)!;
-    const high = state.devices.filter((d) => d.band === "high").length;
-    return {
-      summary: [
-        contained ? `${contained} threat${contained > 1 ? "s" : ""} contained. Contained, not fixed.` : `${high} high-risk device${high === 1 ? "" : "s"} on your network.`,
-        `Your living room camera is end-of-life and accepts its default password. It can't be patched, so SecurIoT watches it closely and isolates it whenever it misbehaves. Current risk ${cam.risk} out of 100.`,
-        "Change the camera's default password, keep it blocked from the internet, and consider replacing it.",
-      ].join("\n\n"),
-    };
+    const bullets = [
+      `Demo only: ${state.events.length} sample ${state.events.length === 1 ? 'alert' : 'alerts'} recorded.`,
+      `Simulated devices with access restrictions: ${state.devices.filter(d => d.status === 'quarantined' || d.status === 'wan_blocked').length}. No real network access is changed.`,
+      "Review suggested fixes and the audit log. Restoring access does not mean a device is safe.",
+    ];
+    return { summary: bullets.join("\n"), bullets };
   },
 
   async getStorage(): Promise<StorageStatus> {

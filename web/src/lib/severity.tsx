@@ -13,7 +13,7 @@ export const severityMeta: Record<Severity, { label: string; Icon: LucideIcon; c
 export function SeverityTag({ severity }: { severity: Severity }) {
   const m = severityMeta[severity];
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${m.tint} ${m.color}`}>
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[15px] font-semibold ${m.tint} ${m.color}`}>
       <m.Icon size={12} strokeWidth={2.4} aria-hidden />
       {m.label}
     </span>
