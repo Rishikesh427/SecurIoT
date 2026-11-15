@@ -94,6 +94,16 @@ it('keeps a quarantined device on the map and brings a reconnected device back',
   expect(back).toBeDefined();
   expect(back.hasClass('popping')).toBe(false);
 });
+it('leaves a floating node alone on routine refreshes and glides only when its spot changes', () => {
+  const view = render(<NetworkMap devices={[device]} rates={{}} issueCounts={{}} onSelect={vi.fn()} />);
+  const node = state.nodes.get(device.mac); node.animate.mockClear(); node.position.mockClear();
+  view.rerender(<NetworkMap devices={[{ ...device }]} rates={{}} issueCounts={{}} onSelect={vi.fn()} />);
+  view.rerender(<NetworkMap devices={[{ ...device }]} rates={{}} issueCounts={{}} onSelect={vi.fn()} />);
+  expect(node.animate).not.toHaveBeenCalledWith(expect.objectContaining({ position: expect.any(Object) }), expect.anything());
+  const phone = { ...device, mac: '00:00:00:00:00:09', label: 'Phone' };  // sorts first, so the camera's spot moves
+  view.rerender(<NetworkMap devices={[device, phone]} rates={{}} issueCounts={{}} onSelect={vi.fn()} />);
+  expect(node.animate).toHaveBeenCalledWith(expect.objectContaining({ position: expect.any(Object) }), expect.objectContaining({ duration: 550 }));
+});
 it('adds a gentle device hover emphasis and restores the original circle size', () => {
   render(<NetworkMap devices={[device]} rates={{}} issueCounts={{}} onSelect={vi.fn()} />);
   const node=state.nodes.get(device.mac); node.style.mockClear();

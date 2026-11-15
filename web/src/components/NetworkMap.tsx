@@ -159,9 +159,14 @@ export default function NetworkMap({ devices, rates, issueCounts = {}, onSelect 
     if (!cy || !element) return;
     // Disconnected devices leave the map; a restricted device stays visible.
     const onMap = devices.filter(device => device.status !== 'offline');
+    const previous = anchors.current;
     anchors.current = mapPositions(onMap.map(device => device.mac), element.clientWidth, element.clientHeight);
     cy.nodes().not('.router').filter(node => !decorative(node) && !onMap.some(device => device.mac === node.id()))
-      .forEach(node => popNode(cy, node, reduced.current));
+      .forEach(node => {
+        floats.current[node.id()]?.kill();  // a returning device gets a fresh float
+        delete floats.current[node.id()];
+        popNode(cy, node, reduced.current);
+      });
     const ink = css('--color-ink', '#000');
     for (const device of onMap) {
       const count = issueCounts[device.mac] ?? 0;
@@ -176,11 +181,13 @@ export default function NetworkMap({ devices, rates, issueCounts = {}, onSelect 
       }
       if (existing.nonempty()) {
         existing.data(data);
-        const anchor = anchors.current[device.mac];
-        if (!existing.grabbed() && !existing.animated()) {
-          const at = existing.position();
-          // When a device leaves or joins, the others glide to their new spots.
-          if (reduced.current || Math.hypot(at.x - anchor.x, at.y - anchor.y) < 1) existing.position(anchor);
+        const anchor = anchors.current[device.mac], before = previous[device.mac];
+        // Glide only when this device's spot changed (another device joined or
+        // left). Every poll used to snap the gently floating node back to its
+        // anchor, fighting the float and making it jump and flicker.
+        const moved = !before || Math.hypot(before.x - anchor.x, before.y - anchor.y) > 1;
+        if (moved && !existing.grabbed() && !existing.animated()) {
+          if (reduced.current) existing.position(anchor);
           else existing.animate({ position: anchor }, { duration: 550, easing: 'ease-in-out-cubic' });
         }
       } else {
@@ -189,9 +196,10 @@ export default function NetworkMap({ devices, rates, issueCounts = {}, onSelect 
         if (!reduced.current) node.style('opacity', 0).animate({ style: { opacity: 1 } }, { duration: 350 });
       }
       if (!floats.current[device.mac] && !reduced.current) {
-        const node=cy.getElementById(device.mac), drift={phase:0};
+        const drift={phase:0};
         floats.current[device.mac]=gsap.to(drift,{phase:Math.PI*2,duration:5+Object.keys(floats.current).length*.35,repeat:-1,ease:'none',onUpdate:()=>{
-          if(node.grabbed()||node.animated()||reduced.current||document.hidden)return;
+          const node=cy.getElementById(device.mac);  // follow the current node, not a removed one
+          if(!node.nonempty()||decorative(node)||node.grabbed()||node.animated()||reduced.current||document.hidden)return;
           const anchor=anchors.current[device.mac];
           if(anchor)node.position({x:anchor.x+Math.sin(drift.phase)*3,y:anchor.y+Math.cos(drift.phase)*4});
         }});
