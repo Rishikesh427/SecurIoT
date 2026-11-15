@@ -211,7 +211,6 @@ class Agent:
             else:
                 decision = "below_notify_threshold"
             return self._detection_event(observation.mac, finding.kind, decision, finding.evidence)
-        self._last_detection.pop(observation.mac, None)  # an action is a state change; log the next detection
         return self.request_action(action, observation.mac, finding=finding)
 
     NOTIFY_AT, BLOCK_AT, QUARANTINE_AT = 0.95, 0.97, 0.99   # detector score tiers
@@ -266,7 +265,17 @@ class Agent:
                 evidence["vulnerability_flags"] = device_for_evidence.assessment.get("vulnerability_flags", [])
         kind = "detection" if finding else "action"
 
-        def decision(reason: str, *, taken: bool = False, learning: bool = False) -> Event:
+        def decision(reason: str, *, taken: bool = False, learning: bool = False) -> Event | None:
+            # An automatic, no-action outcome repeated for the same device (a sustained
+            # scan against an already-quarantined or learning-mode device) collapses to
+            # one event per window. Real actions and manual requests always log.
+            if kind == "detection" and not manual and not taken and mac:
+                now_ = self.clock()
+                key = (finding.kind if finding else "", reason)
+                last = self._last_detection.get(mac)
+                if last is not None and last[0] == key and now_ - last[1] < self.DETECTION_REALERT_SECS:
+                    return None
+                self._last_detection[mac] = (key, now_)
             return self._event(kind, mac, {**evidence, "decision": reason},
                                [action] if taken else [], [action] if learning else [])
 
@@ -315,6 +324,7 @@ class Agent:
         if action == "restore":
             self.grace_until[mac] = now + self.policy.restore_grace_seconds
         self._save()
+        self._last_detection.pop(mac, None)  # a real action is a state change; log the next detection
         return decision("applied_to_simulated_device" if self.enforcer.simulated else "applied_to_device", taken=True)
 
     def _restore_all(self) -> Event:
