@@ -105,12 +105,20 @@ class LivePump:
                 self.agent.routine.flag(mac)
             self._routine_dropped = self.dropped
         self.agent.routine_tick()
+        # Drain the whole queue each step. Cloud HTTP below can block for seconds;
+        # processing one packet per iteration let a scan's packets pile up and age
+        # out of the 10 s detection window before they were counted. Draining keeps
+        # a burst together in one window so sweeps are still detected after a stall.
         try:
             self.handle(self.packets.get(timeout=wait))
+            for _ in range(self.packets.maxsize or 4096):
+                self.handle(self.packets.get_nowait())
         except queue.Empty:
             pass
-        if self.discovery is not None and self.discovery.tick():
-            self.next_poll = now  # a device joined or left: upload it right away
+        if self.discovery is not None and self.discovery.tick() and self.cloud_failures == 0:
+            self.next_poll = now  # a device joined or left and the cloud is healthy: upload it now
+            # While the cloud is failing, respect the retry backoff below instead, so a
+            # flapping device cannot force a blocking upload on every step.
         upkeep = getattr(self.agent.enforcer, "maintain", None)
         if upkeep is not None and now >= self.next_upkeep:
             # nl80211 APs have no deny list: re-kick quarantined stations that rejoin.

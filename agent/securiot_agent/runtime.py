@@ -45,6 +45,11 @@ class Agent:
         self.clock = clock
         self.ladder = {"notify": True, "block_wan": True, "quarantine": True}
         self.started_at = clock()
+        # One detection event per device per (kind, decision) per window. A sustained
+        # scan produces an observation per packet; without this a single sweep wrote
+        # hundreds of identical "detection" events, flooding the audit log and pushing
+        # every other device out of the dashboard's recent-events view.
+        self._last_detection: dict[str, tuple[tuple[str, str], float]] = {}
         self.last_action_at: dict[str, float] = {}
         self.grace_until: dict[str, float] = {}
         self._load_saved_state()
@@ -192,10 +197,7 @@ class Agent:
         if finding is None:
             return None
         if not finding.containment_allowed:
-            return self._event("detection", observation.mac, {
-                "finding": finding.kind, "detection": finding.evidence,
-                "decision": "supporting_evidence_only",
-            })
+            return self._detection_event(observation.mac, finding.kind, "supporting_evidence_only", finding.evidence)
         action = self.choose_action(observation.mac, finding)
         if action is None:
             mac = normalize_mac(observation.mac)
@@ -208,11 +210,24 @@ class Agent:
                 decision = "notify_only"
             else:
                 decision = "below_notify_threshold"
-            return self._event("detection", observation.mac, {
-                "finding": finding.kind, "detection": finding.evidence, "decision": decision})
+            return self._detection_event(observation.mac, finding.kind, decision, finding.evidence)
+        self._last_detection.pop(observation.mac, None)  # an action is a state change; log the next detection
         return self.request_action(action, observation.mac, finding=finding)
 
     NOTIFY_AT, BLOCK_AT, QUARANTINE_AT = 0.95, 0.97, 0.99   # detector score tiers
+    DETECTION_REALERT_SECS = 10   # collapse repeated identical detections into one event per window
+
+    def _detection_event(self, mac, kind, decision, evidence):
+        """Emit a detection event, but collapse an unchanging situation (same finding
+        and same decision) for one device to one event per window. A change of
+        decision — e.g. normal -> restore_grace, or a new action — always emits."""
+        key = (kind, decision)
+        now = self.clock()
+        last = self._last_detection.get(mac)
+        if last is not None and last[0] == key and now - last[1] < self.DETECTION_REALERT_SECS:
+            return None
+        self._last_detection[mac] = (key, now)
+        return self._event("detection", mac, {"finding": kind, "detection": evidence, "decision": decision})
 
     @staticmethod
     def _score(finding: Finding) -> float:
