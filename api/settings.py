@@ -23,6 +23,7 @@ class Settings:
     cors_origins: str = "http://localhost:5173"
     agent_api_key: str = ""
     storage_mode: str = 'auto'
+    live_only: bool = field(default=False, kw_only=True)
     judge_username: str = 'judge'
     judge_password: str = field(default='', repr=False)
 
@@ -46,4 +47,4 @@ class Settings:
         return cls(url, secret, env.get("JWT_ISSUER", "securiot"),
                    env.get("JWT_AUDIENCE", "securiot-dashboard"), minutes,
                    env.get("ROOT_PATH", ""), env.get("CORS_ORIGINS", "http://localhost:5173"), env.get("AGENT_API_KEY", ""),
-                   mode, env.get('JUDGE_USERNAME','judge'), env.get('JUDGE_PASSWORD',''))
+                   mode, env.get('JUDGE_USERNAME','judge'), env.get('JUDGE_PASSWORD',''), live_only=True)

@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { AdvisorPriorities, DeviceAdvisor } from '../src/components/Advisor';
 import type { AdvisorAnswer, Device } from '../src/types';
 
-const { api } = vi.hoisted(() => ({ api: { advisorChat: vi.fn(), advisorTriage: vi.fn() } }));
+const { api } = vi.hoisted(() => ({ api: { advisorChat: vi.fn(), advisorTriage: vi.fn(), researchStatus: vi.fn().mockResolvedValue({status:"unavailable",source:"rules"}) } }));
 vi.mock('../src/api/client', () => ({ api, USE_MOCK: false }));
 const device = { mac: '02:00:00:00:00:01', label: 'Camera', name: 'camera', type: 'unknown', band: 'high', risk: 70,
   reasons: ['Reported Telnet exposure (+15)'], risk_adjusted: 78, ai: { status: 'ready', source: 'gemini', assessment: 'Review exposed services.',

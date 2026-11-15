@@ -257,9 +257,10 @@ def test_new_local_protection_releases_only_owned_restrictions(lab):
     assert not lab.backend.restrictions and MAC not in lab.machine.denied
 
 
-def test_manual_override_bypasses_timers_but_not_local_arm_protection_or_policy(lab):
+def test_manual_actions_bypass_automatic_mode_but_preserve_protection_and_policy(lab):
     agent = make_agent(lab)
-    assert agent.request_action("quarantine",MAC,manual=True).evidence["decision"] == "learning_mode"
+    assert agent.request_action("quarantine",MAC,manual=True).actions_taken
+    agent.request_action("restore",MAC,manual=True)
     agent.set_armed(True)
     assert agent.request_action("quarantine",ADMIN,manual=True).evidence["decision"] == "protected_device"
     assert agent.request_action("quarantine",MAC,manual=True).actions_taken
@@ -371,9 +372,9 @@ def test_live_pump_serializes_packets_and_polls_commands_when_idle(tmp_path):
     assert pump.dropped == 1 and not events and not polls
     pump.step(0,wait=0)
     assert len(events) == 1 and len(polls) == 1
-    pump.step(1,wait=0)
+    pump.step(.25,wait=0)
     assert len(polls) == 1
-    pump.step(2,wait=0)
+    pump.step(.5,wait=0)
     assert len(polls) == 2
 
 
@@ -394,11 +395,14 @@ def test_cli_refuses_ambiguous_real_enforcement_or_replay_to_firewall(args):
 def test_cli_passes_live_cloud_options_without_requiring_replay(monkeypatch,tmp_path):
     from securiot_agent.cli import main
     calls=[]
+    monkeypatch.setenv('SECURIOT_DISCOVERY_CONFIG','discovery.json')
+    monkeypatch.setattr('securiot_agent.linux_enforcement.LinuxConfig.load',lambda path: 'real-config')
     monkeypatch.setenv("AGENT_API_KEY","test-key")
     monkeypatch.setattr("securiot_agent.live.run_live",lambda *args,**kwargs:calls.append((args,kwargs)))
-    assert main(["--live","ap0","--connect","--api-url","http://127.0.0.1:8000", "--state-dir",str(tmp_path),"--arm"]) == 0
+    assert main(["--live","ap0","--enforcement","linux","--enforcement-config","linux.json","--connect","--api-url","http://127.0.0.1:8000", "--state-dir",str(tmp_path),"--arm"]) == 0
     assert calls[0][0][0] == "ap0"
-    assert calls[0][1]["api_key"] == "test-key" and calls[0][1]["linux_config"] is None
+    assert calls[0][1]["api_key"] == "test-key" and calls[0][1]["linux_config"] == "real-config"
+    assert calls[0][0][1] is None
 
 
 @pytest.mark.parametrize("change",[
@@ -433,3 +437,27 @@ def test_deauthenticated_station_may_remain_in_hostapd_history_without_authoriza
     lab.backend.apply("quarantine",MAC)
     assert MAC in lab.machine.stations and not lab.machine.authorized
     assert lab.backend.restrictions == {MAC:"quarantined"}
+
+
+def test_discovery_only_restart_preserves_real_block_and_restore(lab, monkeypatch, tmp_path):
+    from securiot_agent.live import build
+    lab.backend.apply('block_wan', MAC)
+    lab.backend.close()
+    discovery = tmp_path / 'discovery.json'
+    discovery.write_text(json.dumps({'interface':'ap0','cidr':'10.42.0.0/24','protect_guests':False}))
+    monkeypatch.setenv('SECURIOT_DISCOVERY_CONFIG',str(discovery))
+    (lab.path/'discovered-devices.json').write_text(json.dumps({'devices':[
+        {'mac':MAC,'ip':'10.42.0.20','name':'Known restricted guest'},
+        {'mac':OTHER,'ip':'10.42.0.30','name':'Stale cached guest'}]}))
+    original = LinuxEnforcer
+    monkeypatch.setattr('securiot_agent.linux_enforcement.LinuxEnforcer',
+                        lambda config, path, devices: original(config,path,devices,run=lab.machine))
+    agent, collector = build(None,lab.path,linux_config=lab.config,model_mode='rules')
+    try:
+        assert set(agent.inventory.devices)=={MAC}
+        assert agent.inventory.get(MAC).status=='blocked'
+        assert agent.enforcer.restrictions=={MAC:'blocked'}
+        result=agent.request_action('restore',MAC,manual=True)
+        assert result.actions_taken==['restore']
+        assert agent.enforcer.restrictions=={}
+    finally:agent.enforcer.close()

@@ -105,15 +105,32 @@ class CloudTests(unittest.TestCase):
             self.storage, armed=True, detector="ml").agent
         self.db = TestDatabase()
         app = FastAPI()
-        app.state.settings = SimpleNamespace(agent_api_key="test-key")
+        app.state.settings = SimpleNamespace(agent_api_key="test-key", live_only=False)
         app.state.db = self.db
-        # This wire-contract fixture does not start the application lifespan.
-        app.state.advisor = SimpleNamespace(decorate=lambda devices, events: devices)
+        from api.advisor import AdvisorService
+        app.state.advisor = AdvisorService()
+        app.state.advisor.configured = False
+        self.addCleanup(app.state.advisor.close)
         app.include_router(router(lambda: {"username": "test"}))
         self.http = TestClient(app)
         self.addCleanup(self.http.close)
         self.client = RouteClient(self.http)
         self.loop = CloudLoop(self.agent, self.client, SCHEMA, permit_arm=True)
+
+    def test_unchanged_telemetry_is_not_uploaded_repeatedly(self):
+        self.loop.upload()
+        self.loop.upload()
+        self.assertEqual(len(self.client.batches), 1)
+
+    def test_live_outbox_retires_saved_simulation_without_enforcement(self):
+        self.client.lose_ingest_reply = True
+        with self.assertRaises(CloudError):
+            self.loop.upload()
+        self.agent.enforcer.simulated = False  # Test double only, no host changes.
+        resumed = CloudLoop(self.agent, self.client, SCHEMA, permit_arm=True)
+        self.assertEqual(resumed.state['pending_batch']['payload'], {'devices':[], 'events':[]})
+        resumed.upload()
+        self.assertEqual(self.client.batches[-1], {'devices':[], 'events':[]})
 
     def restore_command(self):
         command = {"id": str(uuid4()), "created_at": "2026-11-14T12:00:00Z",

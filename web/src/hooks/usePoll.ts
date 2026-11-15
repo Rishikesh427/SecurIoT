@@ -9,6 +9,7 @@ export function usePoll(fn: () => void | Promise<void>, ms: number, enabled = tr
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     async function tick() {
+      if (document.hidden) { if (!stopped) timer = setTimeout(tick, ms); return; }
       try {
         await saved.current();
       } catch (error) {

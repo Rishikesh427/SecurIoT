@@ -3,7 +3,7 @@ import { parseReason } from '../lib/format';
 
 export function RiskBreakdown({ device }: { device: Device }) {
   return <div className="space-y-6">
-    <div className="flex items-baseline justify-between gap-4"><h3 className="font-semibold">Rules Score</h3><strong className="text-2xl tabular-nums">{device.risk}/100</strong></div>
+    <div className="flex items-baseline justify-between gap-4"><h3 className="font-semibold">Underlying Risk</h3><strong className="text-2xl tabular-nums">{device.risk}/100</strong></div>
     <ul className="divide-y divide-hairline">{device.reasons.map((reason, index) => {
       const parsed = parseReason(reason);
       return <li key={index} className="flex justify-between gap-4 py-3"><span>{parsed.text}</span>{parsed.points != null && <strong className="shrink-0 tabular-nums">+{parsed.points}</strong>}</li>;

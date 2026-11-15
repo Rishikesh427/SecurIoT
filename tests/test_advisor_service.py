@@ -59,7 +59,7 @@ def test_failure_retry_expiry_and_cache_bound(monkeypatch):
         future.result(1)
         with service.lock:
             assert service._cached('a') == {'source': 'rules'}
-            now[0] = 61
+            now[0] = service.RETRY + 1
             assert service._cached('a') is None
             first = service._submit('b', lambda: {'source': 'gemini'})
         first.result(1)

@@ -16,7 +16,6 @@ it('allows manual quarantine without a detection and explicit restore', () => {
 });
 
 it.each([
-  ['learning mode', {...policy,learning_mode:true}],
   ['protected device', {...policy,protected_macs:[mac]}],
   ['disabled ladder', {...policy,ladder:{...policy.ladder,quarantine:false}}],
   ['unavailable policy', null],
@@ -29,7 +28,12 @@ it.each([
 it('shows queued rather than applied state and prevents duplicate submissions', () => {
   const action = vi.fn();
   render(<DeviceControls mac={mac} policy={policy} busy={false} pending="quarantine" readOnly={false} onAction={action} />);
-  expect(screen.getByRole('status').textContent).toContain('awaiting agent acknowledgement');
+  expect(screen.getByRole('status').textContent).toContain('waiting for the Pi’s result');
   fireEvent.click(screen.getByRole('button',{name:'Quarantine'}));
   expect(action).not.toHaveBeenCalled();
+});
+
+it('allows an explicit internet block in learning mode without removing the device',()=>{
+  const action=vi.fn();render(<DeviceControls mac={mac} policy={{...policy,learning_mode:true}} busy={false} readOnly={false} onAction={action}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Block Internet'}));expect(action).toHaveBeenCalledWith('block_wan',mac);
 });

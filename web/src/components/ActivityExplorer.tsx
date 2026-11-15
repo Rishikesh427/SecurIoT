@@ -148,7 +148,7 @@ export function ActivityExplorer({
         <button
           type="button"
           onClick={reset}
-          className="ml-auto mt-3 block text-sm font-medium underline"
+          className="mt-3 text-sm font-medium underline"
         >
           Reset
         </button>
@@ -159,7 +159,7 @@ export function ActivityExplorer({
           No loaded events match these filters.
         </p>
       ) : (
-        <ActivityList
+        <ActivityList key={[device,range,kind,outcome].join(":")}
           events={filtered}
           devices={devices}
           onSelect={onSelect}

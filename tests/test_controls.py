@@ -66,7 +66,7 @@ def test_actions_policy_and_ack_end_to_end(store):
         assert p.json() == Policy().model_dump()
         assert client.post('/actions', json={'action':'quarantine','mac':mac}).status_code == 404
         assert client.post('/ingest', json=data, headers=agent).status_code == 200
-        assert client.post('/actions', json={'action':'quarantine','mac':mac}).status_code == 409
+        assert client.post('/actions', json={'action':'quarantine','mac':mac}).status_code == 202
         armed = {**p.json(), 'learning_mode':False}
         update = client.put('/policy', json=armed, headers={'If-Match':p.headers['etag']})
         assert update.status_code == 200 and update.headers['etag'] != p.headers['etag']

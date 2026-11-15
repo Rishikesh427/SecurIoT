@@ -32,7 +32,7 @@ def test_audit_records_restore_request_and_ack_and_seed_history():
         db.ack(command['id'], Ack.model_validate({'status':'applied','ts':'2026-11-14T15:00:00Z'}))
         applied = next(row for row in db.audit() if row.get('command_id') == command['id'])
         assert applied['outcome'] == 'applied'
-        assert any(row['actor']=='seeded-demo' and row['action']=='restore' for row in db.audit())
+        assert not any(row['actor']=='seeded-demo' for row in db.audit())
     finally:
         db.close()
 
@@ -49,8 +49,7 @@ def test_audit_digest_detection_containment_restore_roundtrip():
         auth = {'Authorization': 'Bearer ' + login.json()['access_token']}
         agent = {'X-API-Key': CONFIG.agent_api_key}
         seeded = client.post('/audit/run', headers=auth).json()['summary']
-        assert 'Recorded activity: none yet.' in seeded
-        assert 'Seeded demo history (4 entries)' in seeded
+        assert seeded == 'No audit activity recorded yet.'
 
         data = fixture_batch()
         event = data['events'][1]
@@ -84,7 +83,7 @@ def test_audit_digest_detection_containment_restore_roundtrip():
                        '1 quarantine(s) reported applied', '1 device restore(s) reported applied',
                        '0 request(s) awaiting acknowledgement'):
             assert phrase in recorded
-        assert 'Seeded demo history (4 entries)' in summary
+        assert 'Seeded demo history' not in summary
         assert 'Containment does not fix a device' in summary
     db.close()
 

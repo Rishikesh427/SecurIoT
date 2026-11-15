@@ -13,8 +13,10 @@ services:
     environment:
       APP_ENV: development
       ROOT_PATH: /api
+      GEMINI_STATE_PATH: /home/app/.local/state/casawarden/gemini.sqlite3
       SECURIOT_ROUTER_URL: ${SECURIOT_ROUTER_URL:-}
     volumes:
+      - gemini_state:/home/app/.local/state/casawarden
       - ./api:/app/api
       - ./ml/securiot_ml:/app/ml/securiot_ml:ro
     command: >-
@@ -71,6 +73,7 @@ services:
     security_opt:
       - no-new-privileges:true
 volumes:
+  gemini_state:
   caddy_data:
   caddy_config:
   web_node_modules:

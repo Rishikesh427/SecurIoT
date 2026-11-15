@@ -35,6 +35,8 @@ export interface Device {
   type: string;
   vendor: string | null;
   model?: string | null;
+  firmware?: string | null;
+  identification?: Record<string, unknown>;
   kev?: "confirmed" | "possible" | "none" | "unknown";
   ports: number[];
   bytes_in: number;
@@ -81,7 +83,7 @@ export interface ActionRequest {
 }
 
 export interface Command {
-  status?: "pending" | "applied" | "failed";
+  status?: "pending" | "applied" | "failed" | "cancelled";
   detail?: string;
   id: string;
   created_at: string;
@@ -127,3 +129,9 @@ export interface FeedMeta {
 
 /** Device plus what the dashboard derives from policy. */
 export type DashDevice = Device & { protected: boolean };
+
+export interface PublicResearchResult {
+  status: 'idle' | 'pending' | 'ready' | 'unavailable' | 'needs_identity';
+  source: 'gemini' | 'rules'; reason?: string; summary?: string;
+  sources?: {url:string;title:string}[]; search_suggestions?: string; checked_at?: string; note?: string;
+}

@@ -30,14 +30,6 @@ class MemoryDatabase:
         self.revision = 1
         self.epoch = uuid4().hex
         self.users = {}
-        now = datetime.now(timezone.utc)
-        seeded = [('301','notify','applied'), ('302','block_wan','would_have'),
-                  ('303','quarantine','would_have'), ('304','restore','applied')]
-        for index, (suffix, action, outcome) in enumerate(seeded, 1):
-            entry = {'id':f'00000000-0000-4000-8000-000000000{suffix}',
-                     'ts':now.replace(microsecond=0).isoformat(), 'actor':'seeded-demo',
-                     'action':action, 'mac':None, 'command_id':None, 'outcome':outcome}
-            self.conn.execute('INSERT INTO audit VALUES (?,?)', (entry['id'], json.dumps(entry)))
         password = settings.judge_password
         if len(password) >= 16 and not password.startswith('GENERATE_'):
             user_id = uuid5(NAMESPACE_URL, 'securiot-demo:' + settings.judge_username)
@@ -76,15 +68,6 @@ class MemoryDatabase:
         with self.lock:
             return copy.deepcopy(self.users.get(str(user_id)))
 
-    def create_user(self, username, password_hash):
-        with self.lock:
-            if any(user['username'] == username for user in self.users.values()):
-                raise HTTPException(409, 'Username is already in use')
-            user = {'id': uuid4(), 'username': username, 'password_hash': password_hash,
-                    'role': 'judge', 'active': True}
-            self.users[str(user['id'])] = user
-            return copy.deepcopy(user)
-
     def _rows(self, table):
         # Internal constant table names only.
         return [json.loads(row[0]) for row in self.conn.execute(f'SELECT payload FROM {table}')]
@@ -93,6 +76,9 @@ class MemoryDatabase:
         from api.telemetry import Device, Event
         counts = {'accepted_devices':0, 'accepted_events':0}
         with self.lock, self.conn:
+            known = {row['mac'] for row in self._rows('devices')}
+            if ({device.mac for device in batch.devices} - known) and len(known | {device.mac for device in batch.devices}) > 20:
+                raise HTTPException(409, 'Device registration unavailable')
             for event in batch.events:
                 key = str(event.id)
                 old = self.conn.execute('SELECT payload FROM events WHERE id=?', (key,)).fetchone()
@@ -148,12 +134,38 @@ class MemoryDatabase:
             check_action(body, self.policy, known)
             if self.conn.execute('SELECT count(*) FROM commands').fetchone()[0] >= 1000:
                 raise HTTPException(503, 'Demo command capacity reached')
+            if body.action in ('restore', 'restore_all'):
+                for previous in self._rows('commands'):
+                    if previous['action'] in ('block_wan', 'quarantine') and (body.action == 'restore_all' or previous.get('mac') == body.mac):
+                        changed = self.conn.execute("UPDATE commands SET status='cancelled' WHERE id=? AND status='pending'", (previous['id'],)).rowcount
+                        if changed:
+                            row = self.conn.execute('SELECT payload FROM audit WHERE id=?', (previous['id'],)).fetchone()
+                            if row:
+                                entry = json.loads(row[0]); entry.update(outcome='failed', ts=datetime.now(timezone.utc).isoformat())
+                                self.conn.execute('UPDATE audit SET payload=? WHERE id=?', (json.dumps(entry),previous['id']))
             command = {'id':key, 'created_at':datetime.now(timezone.utc).isoformat(), **body.model_dump(exclude_none=True)}
             self.conn.execute("INSERT INTO commands VALUES (?,?,'pending',NULL)", (key,json.dumps(command)))
             entry = {'id':key, 'ts':command['created_at'], 'actor':actor, 'action':body.action,
                      'mac':body.mac, 'command_id':key, 'outcome':'requested'}
             self.conn.execute('INSERT INTO audit VALUES (?,?)', (key,json.dumps(entry)))
             return command
+
+    def command_result(self, command_id):
+        with self.lock:
+            row = self.conn.execute('SELECT status,ack FROM commands WHERE id=?', (str(command_id),)).fetchone()
+            if row is None:
+                return None
+            ack = json.loads(row[1]) if row[1] else {}
+            return {'status': row[0], 'detail': ack.get('detail')}
+
+    def warn(self, mac, actor):
+        with self.lock, self.conn:
+            if not self.conn.execute('SELECT 1 FROM devices WHERE id=?', (mac,)).fetchone():
+                raise HTTPException(404, 'Device not found')
+            identifier = str(uuid4())
+            entry = {'id': identifier, 'ts': datetime.now(timezone.utc).isoformat(), 'actor': actor, 'action':'notify', 'mac':mac, 'outcome':'applied'}
+            self.conn.execute('INSERT INTO audit VALUES (?,?)', (identifier,json.dumps(entry)))
+            return {'id':identifier,'status':'recorded'}
 
     def sync(self):
         with self.lock:
@@ -190,8 +202,8 @@ class MemoryDatabase:
 
 
 class Storage:
-    METHODS = {'audit','ready','user_by_name','user_by_id','create_user','ingest','sync','ack','devices','events','get_policy','put_policy','create_command'}
-    WRITES = {'create_user','ingest','ack','put_policy','create_command'}
+    METHODS = {'audit','ready','user_by_name','user_by_id','ingest','sync','ack','devices','events','get_policy','put_policy','create_command','command_result','warn'}
+    WRITES = {'ingest','ack','put_policy','create_command','warn'}
 
     def __init__(self, primary, settings):
         self.primary = primary

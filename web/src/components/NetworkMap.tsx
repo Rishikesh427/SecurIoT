@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import gsap from 'gsap';
 import cytoscape, { type Core, type NodeSingular } from 'cytoscape';
 import { shortLabel } from '../lib/format';
 import type { DashDevice } from '../types';
@@ -61,6 +62,7 @@ export default function NetworkMap({ devices, rates, issueCounts = {}, onSelect 
   const graph = useRef<Core | null>(null);
   const select = useRef(onSelect); select.current = onSelect;
   const anchors = useRef<Record<string, { x: number; y: number }>>({});
+  const floats = useRef<Record<string, gsap.core.Tween>>({});
   const draggedAt = useRef(0);
   const reduced = useRef(false);
 
@@ -105,7 +107,7 @@ export default function NetworkMap({ devices, rates, issueCounts = {}, onSelect 
       const node = event.target as NodeSingular;
       if (node.id() !== 'router' && !decorative(node) && Date.now() - draggedAt.current > 250) select.current(node.id());
     });
-    cy.on('grab', 'node', (event) => { (event.target as NodeSingular).stop(true, false).style("opacity", 1); element.style.cursor = 'grabbing'; });
+    cy.on('grab', 'node', (event) => { floats.current[(event.target as NodeSingular).id()]?.pause(); (event.target as NodeSingular).stop(true, false).style("opacity", 1); element.style.cursor = 'grabbing'; });
     cy.on('drag', 'node', () => { draggedAt.current = Date.now(); });
     cy.on('dragfree', 'node', (event) => {
       const node = event.target as NodeSingular;
@@ -114,7 +116,7 @@ export default function NetworkMap({ devices, rates, issueCounts = {}, onSelect 
       if (!anchor) return;
       node.stop(true, false);
       if (reduced.current) node.position(anchor);
-      else node.animate({ position: anchor }, { duration: 650, easing: 'spring(350, 24)' as cytoscape.Css.TransitionTimingFunction });
+      else node.animate({ position: anchor }, { duration: 650, easing: 'spring(350, 24)' as cytoscape.Css.TransitionTimingFunction, complete:()=>floats.current[node.id()]?.resume() });
     });
     cy.on('mouseover', 'node', (event) => {
       element.style.cursor = 'grab';
@@ -135,6 +137,7 @@ export default function NetworkMap({ devices, rates, issueCounts = {}, onSelect 
     if (!reduced.current) frame = requestAnimationFrame(animate);
     const motion = (event: MediaQueryListEvent) => {
       reduced.current = event.matches;
+      Object.values(floats.current).forEach(tween=>event.matches?tween.pause():tween.resume());
       cy.nodes().style('transition-duration', event.matches ? 0 : .18);
       cancelAnimationFrame(frame);
       if (event.matches) cy.nodes().stop(true, true); else frame = requestAnimationFrame(animate);
@@ -148,7 +151,7 @@ export default function NetworkMap({ devices, rates, issueCounts = {}, onSelect 
       placed.forEach(node => { if (!node.grabbed()) node.stop(true, false).style('opacity', 1).position(anchors.current[node.id()]); });
     });
     resize.observe(element);
-    return () => { cancelAnimationFrame(frame); preference.removeEventListener?.('change', motion); resize.disconnect(); cy.destroy(); graph.current = null; };
+    return () => { cancelAnimationFrame(frame); preference.removeEventListener?.('change', motion); resize.disconnect(); Object.values(floats.current).forEach(tween=>tween.kill()); floats.current={}; cy.destroy(); graph.current = null; };
   }, []);
 
   useEffect(() => {
@@ -185,7 +188,15 @@ export default function NetworkMap({ devices, rates, issueCounts = {}, onSelect 
         cy.add({ data: { id: `e-${device.mac}`, source: 'router', target: device.mac } });
         if (!reduced.current) node.style('opacity', 0).animate({ style: { opacity: 1 } }, { duration: 350 });
       }
-      cy.getElementById(`e-${device.mac}`).classes(device.status === 'quarantined' ? 'cut' : device.status === 'wan_blocked' ? 'blocked' : 'flow');
+      if (!floats.current[device.mac] && !reduced.current) {
+        const node=cy.getElementById(device.mac), drift={phase:0};
+        floats.current[device.mac]=gsap.to(drift,{phase:Math.PI*2,duration:5+Object.keys(floats.current).length*.35,repeat:-1,ease:'none',onUpdate:()=>{
+          if(node.grabbed()||node.animated()||reduced.current||document.hidden)return;
+          const anchor=anchors.current[device.mac];
+          if(anchor)node.position({x:anchor.x+Math.sin(drift.phase)*3,y:anchor.y+Math.cos(drift.phase)*4});
+        }});
+      }
+      cy.getElementById(`e-${device.mac}`).classes(device.status === 'quarantined' ? 'cut' : device.status === 'wan_blocked' ? 'blocked' : device.status === 'offline' ? 'offline' : 'flow');
     }
   }, [devices, issueCounts]);
 

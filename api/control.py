@@ -1,4 +1,7 @@
 """Dashboard controls shared by PostgreSQL and demo storage."""
+import asyncio
+import time
+from starlette.concurrency import run_in_threadpool
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
@@ -43,8 +46,6 @@ def check_action(body, policy, known):
     if body.mac is not None and not known:
         raise HTTPException(404, 'Device not found')
     if body.action in ('block_wan', 'quarantine'):
-        if policy['learning_mode']:
-            raise HTTPException(409, 'Turn off learning mode before requesting containment')
         if body.mac in policy['protected_macs']:
             raise HTTPException(409, 'Device is protected')
         if not policy['ladder'][body.action]:
@@ -75,30 +76,29 @@ def router(current_user):
         return result['policy']
 
     @routes.post('/actions', status_code=202)
-    def action(body: ActionRequest, request: Request,
+    async def action(body: ActionRequest, request: Request, response: Response, wait: bool = False,
                idempotency_key: UUID | None = Header(default=None), user=Depends(current_user)):
-        command = request.app.state.db.create_command(body, idempotency_key or uuid4(), user['username'])
-        from api.settings import environment
-        url = environment().get('SECURIOT_ROUTER_URL', '').rstrip('/')
-        if not url:
+        db = request.app.state.db
+        if request.app.state.settings.live_only and body.mac:
+            device = next((d for d in db.devices() if d['mac'] == body.mac), None)
+            if device and body.action in ('block_wan','quarantine') and (device.get('identification') or {}).get('manual_protected') is True:
+                raise HTTPException(409, 'Device is protected by the Pi controller configuration')
+            if device and device.get('simulated'):
+                raise HTTPException(409, 'This is an old simulated record. Connect the live Linux agent and select a discovered device.')
+        command = await run_in_threadpool(db.create_command, body, idempotency_key or uuid4(), user['username'])
+        if not wait:
             return command
-        # The Pi executes on its single runtime writer. Never mark success merely
-        # because delivery succeeded; persist the returned execution result.
-        import json
-        import urllib.request
-        from fastapi.encoders import jsonable_encoder
-        from api.telemetry import Ack
-        try:
-            payload = json.dumps(jsonable_encoder({'command': command, 'policy': request.app.state.db.get_policy()['policy']})).encode()
-            outgoing = urllib.request.Request(url + '/actions', data=payload,
-                headers={'Content-Type': 'application/json', 'X-API-Key': request.app.state.settings.agent_api_key})
-            with urllib.request.urlopen(outgoing, timeout=28) as result:
-                ack = Ack.model_validate_json(result.read(65536))
-            request.app.state.db.ack(command['id'], ack)
-            return {**command, 'status': ack.status, 'detail': ack.detail}
-        except Exception:
-            # A lost response is uncertain, not a failed firewall operation.
-            # The durable Pi journal and normal sync reconcile the same command ID.
-            return {**command, 'status': 'pending', 'detail': 'Router result unavailable; check the audit log.'}
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            result = await run_in_threadpool(db.command_result, command['id'])
+            if result and result['status'] != 'pending':
+                response.status_code = 200
+                return {**command, **result}
+            await asyncio.sleep(.5)
+        return {**command, 'status':'pending', 'detail':'The agent has not reported an outcome yet. Check that the Pi agent is running and connected.'}
+
+    @routes.post('/devices/{mac}/warn')
+    def warn(mac: Mac, request: Request, user=Depends(current_user)):
+        return request.app.state.db.warn(mac, user['username'])
 
     return routes
