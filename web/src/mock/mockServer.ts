@@ -2,7 +2,7 @@
 // /contract shapes and plays the scripted QR attack from the plan's LIVE DEMO,
 // so the dashboard works with no hardware or backend.
 import type { ActionRequest, AuditEntry, AuditRun, Command, Device, FeedMeta, Policy, SecurEvent, StorageStatus, TokenResponse } from "../types";
-import { CAMERA_MAC, defaultPolicy, fixtureDevices, fixtureEvents } from "./fixtures";
+import { CAMERA_MAC, PROJECTOR_MAC as AWAY_MAC, defaultPolicy, fixtureDevices, fixtureEvents } from "./fixtures";
 
 type Enforcement = "block_wan" | "quarantine";
 
@@ -245,6 +245,15 @@ export const mockServer = {
     });
     state.baseReasons.set(mac, []);
     pushEvent({ mac, ts: now, kind: "new_device", evidence: { simulated: true, ip: "10.42.0.61" } });
+  },
+
+  /** The healthy projector leaves the Wi-Fi (or returns), like the agent reports from the station list. */
+  deviceAway: () => device(AWAY_MAC)?.status === "offline",
+  toggleDeviceAway() {
+    const d = device(AWAY_MAC);
+    if (!d || (d.status !== "normal" && d.status !== "offline")) return;
+    d.status = d.status === "offline" ? "normal" : "offline";
+    if (d.status === "normal") d.last_seen = iso();
   },
 
   /** Phone scans the QR code on the camera; infect.sh starts 2 s later. */

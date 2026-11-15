@@ -12,6 +12,9 @@ dependencies = []
 [project.optional-dependencies]
 replay = ["scapy>=2.6,<3", "netaddr>=1.3,<2"]
 cloud = ["jsonschema>=4.23,<5", "rfc3339-validator>=0.1.4,<1"]
+# Guest discovery reads vendors from MAC addresses with netaddr's bundled IEEE
+# registry (works offline); without it devices are still found, just unlabeled.
+discovery = ["netaddr>=1.3,<2"]
 # Loads Worker C's trained scan model (ml/data/scan_model.joblib); without it the
 # detector uses threshold rules only. Pins match the saved model.
 model = ["joblib==1.6.0", "numpy==2.5.4", "pandas==3.1.1", "scikit-learn==1.9.1"]

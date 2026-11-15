@@ -16,6 +16,45 @@ export function mapPositions(macs: string[], width: number, height: number) {
   }));
 }
 
+const PARTICLES = 14;
+
+/** A disconnected device inflates like a balloon, bursts into particles, then shrinks away. */
+export function popNode(cy: Core, node: NodeSingular, reduced: boolean) {
+  if (node.hasClass('popping')) return;
+  node.addClass('popping');
+  node.ungrabify();
+  if (reduced) { node.remove(); return; } // its link goes with it
+  const at = { ...node.position() };
+  const color = node.data('color') || COLORS.low;
+  cy.getElementById(`e-${node.id()}`).animate({ style: { opacity: 0 } }, { duration: 300 });
+  node.stop(true, false).animate({ style: { width: 74, height: 74 } }, {
+    duration: 170, easing: 'ease-out-quad',
+    complete: () => {
+      burst(cy, at, color);
+      node.animate({ style: { width: 2, height: 2, opacity: 0, 'text-opacity': 0, 'text-background-opacity': 0 } },
+        { duration: 200, easing: 'ease-in-cubic', complete: () => node.remove() });
+    },
+  });
+}
+
+function burst(cy: Core, at: { x: number; y: number }, color: string) {
+  const stamp = Date.now();
+  for (let i = 0; i < PARTICLES; i++) {
+    const angle = i / PARTICLES * Math.PI * 2 + Math.random() * .4;
+    const distance = 50 + Math.random() * 40;
+    const size = 7 + Math.random() * 5;
+    const flight = 420 + Math.random() * 140;
+    const particle = cy.add({ group: 'nodes', classes: 'particle', position: { ...at }, grabbable: false, selectable: false,
+      data: { id: `p-${stamp}-${i}`, color, size } });
+    // Fly out solid, then fade: a confetti burst rather than a smudge.
+    particle.animate({ position: { x: at.x + Math.cos(angle) * distance, y: at.y + Math.sin(angle) * distance }, style: { width: size * .7, height: size * .7 } },
+      { duration: flight, easing: 'ease-out-cubic', complete: () =>
+        particle.animate({ style: { opacity: 0, width: 1, height: 1 } }, { duration: 260, easing: 'ease-in-quad', complete: () => particle.remove() }) });
+  }
+}
+
+const decorative = (node: cytoscape.SingularElementArgument) => node.hasClass('particle') || node.hasClass('popping');
+
 export default function NetworkMap({ devices, rates, issueCounts = {}, onSelect }: {
   devices: DashDevice[]; rates: Record<string, number>; issueCounts?: Record<string, number>; onSelect: (mac: string) => void;
 }) {
@@ -36,7 +75,7 @@ export default function NetworkMap({ devices, rates, issueCounts = {}, onSelect 
     reduced.current = preference.matches;
     const cy = cytoscape({
       container: element, layout: { name: 'preset', fit: false },
-      elements: [{ data: { id: 'router', label: 'Router' }, classes: 'router', position: { x: element.clientWidth / 2, y: element.clientHeight / 2 } }],
+      elements: [{ data: { id: 'router', label: 'Router', color: ink, badge: 'none' }, classes: 'router', position: { x: element.clientWidth / 2, y: element.clientHeight / 2 } }],
       zoom: 1, minZoom: 1, maxZoom: 1, userZoomingEnabled: false, userPanningEnabled: false,
       boxSelectionEnabled: false, autoungrabify: false,
       style: [
@@ -56,13 +95,17 @@ export default function NetworkMap({ devices, rates, issueCounts = {}, onSelect 
         { selector: 'edge.cut', style: { 'line-color': COLORS.high, opacity: .45 } },
         { selector: 'edge.blocked', style: { 'line-color': COLORS.medium, opacity: .6 } },
         { selector: 'edge.offline', style: { opacity: .35 } },
+        { selector: 'node.popping', style: { 'transition-duration': 0, events: 'no' } as cytoscape.Css.Node },
+        { selector: 'node.particle', style: { width: 'data(size)', height: 'data(size)', 'background-color': 'data(color)',
+          'background-image': 'none', 'border-width': 0, label: '', 'text-background-opacity': 0, 'z-index': 20,
+          'transition-duration': 0, events: 'no' } as cytoscape.Css.Node },
       ],
     });
     graph.current = cy;
     cy.getElementById('router').ungrabify();
     cy.on('tap', 'node', (event) => {
       const node = event.target as NodeSingular;
-      if (node.id() !== 'router' && Date.now() - draggedAt.current > 250) select.current(node.id());
+      if (node.id() !== 'router' && !decorative(node) && Date.now() - draggedAt.current > 250) select.current(node.id());
     });
     cy.on('grab', 'node', (event) => { floats.current[(event.target as NodeSingular).id()]?.pause(); (event.target as NodeSingular).stop(true, false).style("opacity", 1); element.style.cursor = 'grabbing'; });
     cy.on('drag', 'node', () => { draggedAt.current = Date.now(); });
@@ -78,12 +121,12 @@ export default function NetworkMap({ devices, rates, issueCounts = {}, onSelect 
     cy.on('mouseover', 'node', (event) => {
       element.style.cursor = 'grab';
       const node = event.target as NodeSingular;
-      if (node.id() !== 'router' && !reduced.current) node.style({ width: 64, height: 64, 'border-width': 4 });
+      if (node.id() !== 'router' && !decorative(node) && !reduced.current) node.style({ width: 64, height: 64, 'border-width': 4 });
     });
     cy.on('mouseout', 'node', (event) => {
       element.style.cursor = 'default';
       const node = event.target as NodeSingular;
-      if (node.id() !== 'router') node.style({ width: 56, height: 56, 'border-width': 3 });
+      if (node.id() !== 'router' && !decorative(node)) node.style({ width: 56, height: 56, 'border-width': 3 });
     });
     let frame = 0, offset = 0;
     const animate = () => {
@@ -103,8 +146,9 @@ export default function NetworkMap({ devices, rates, issueCounts = {}, onSelect 
     const resize = new ResizeObserver(() => {
       cy.resize();
       cy.getElementById('router').position({ x: element.clientWidth / 2, y: element.clientHeight / 2 });
-      anchors.current = mapPositions(cy.nodes().not('.router').map(node => node.id()), element.clientWidth, element.clientHeight);
-      cy.nodes().not('.router').forEach(node => { if (!node.grabbed()) { node.stop(true, false).style('opacity', 1).position(anchors.current[node.id()]); if(!reduced.current)floats.current[node.id()]?.resume(); } });
+      const placed = cy.nodes().not('.router').filter(node => !decorative(node));
+      anchors.current = mapPositions(placed.map(node => node.id()), element.clientWidth, element.clientHeight);
+      placed.forEach(node => { if (!node.grabbed()) node.stop(true, false).style('opacity', 1).position(anchors.current[node.id()]); });
     });
     resize.observe(element);
     return () => { cancelAnimationFrame(frame); preference.removeEventListener?.('change', motion); resize.disconnect(); Object.values(floats.current).forEach(tween=>tween.kill()); floats.current={}; cy.destroy(); graph.current = null; };
@@ -113,19 +157,32 @@ export default function NetworkMap({ devices, rates, issueCounts = {}, onSelect 
   useEffect(() => {
     const cy = graph.current, element = box.current;
     if (!cy || !element) return;
-    anchors.current = mapPositions(devices.map(device => device.mac), element.clientWidth, element.clientHeight);
-    for (const id of Object.keys(floats.current)) if (!devices.some(device=>device.mac===id)) { floats.current[id].kill(); delete floats.current[id]; }
-    cy.nodes().not('.router').filter(node => !devices.some(device => device.mac === node.id())).remove();
+    // Disconnected devices leave the map; a restricted device stays visible.
+    const onMap = devices.filter(device => device.status !== 'offline');
+    anchors.current = mapPositions(onMap.map(device => device.mac), element.clientWidth, element.clientHeight);
+    cy.nodes().not('.router').filter(node => !decorative(node) && !onMap.some(device => device.mac === node.id()))
+      .forEach(node => popNode(cy, node, reduced.current));
     const ink = css('--color-ink', '#000');
-    for (const device of devices) {
+    for (const device of onMap) {
       const count = issueCounts[device.mac] ?? 0;
       const color = ['quarantined', 'wan_blocked'].includes(device.status) ? COLORS.high : COLORS[device.band];
       const data = { id: device.mac, label: shortLabel(device.label), color,
         badge: uri(`<svg xmlns="http://www.w3.org/2000/svg" width="56" height="56"><text x="28" y="36" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="20" font-weight="600" fill="${ink}">${count}</text></svg>`) };
-      const existing = cy.getElementById(device.mac);
+      let existing = cy.getElementById(device.mac);
+      if (existing.nonempty() && existing.hasClass('popping')) {
+        // Reconnected mid-pop: drop the balloon and bring a fresh node back from the router.
+        existing.stop(true, false).remove();
+        existing = cy.getElementById(device.mac);
+      }
       if (existing.nonempty()) {
         existing.data(data);
-        if (!existing.grabbed() && !existing.animated() && !floats.current[device.mac]) existing.position(anchors.current[device.mac]);
+        const anchor = anchors.current[device.mac];
+        if (!existing.grabbed() && !existing.animated()) {
+          const at = existing.position();
+          // When a device leaves or joins, the others glide to their new spots.
+          if (reduced.current || Math.hypot(at.x - anchor.x, at.y - anchor.y) < 1) existing.position(anchor);
+          else existing.animate({ position: anchor }, { duration: 550, easing: 'ease-in-out-cubic' });
+        }
       } else {
         const node = cy.add({ data, position: anchors.current[device.mac] });
         cy.add({ data: { id: `e-${device.mac}`, source: 'router', target: device.mac } });
@@ -151,7 +208,7 @@ export default function NetworkMap({ devices, rates, issueCounts = {}, onSelect 
   }, [rates]);
 
   return <div role="group" aria-label="Home Network Map">
-    <div ref={box} className="h-[500px] w-full" aria-hidden="true" />
-    <ul className="sr-only">{devices.map(device => <li key={device.mac}><button onClick={() => onSelect(device.mac)}>{shortLabel(device.label)}: {issueCounts[device.mac] ?? 0} Security Issues. Open Fixes.</button></li>)}</ul>
+    <div ref={box} className="h-[380px] w-full" aria-hidden="true" />
+    <ul className="sr-only">{devices.filter(device => device.status !== 'offline').map(device => <li key={device.mac}><button onClick={() => onSelect(device.mac)}>{shortLabel(device.label)}: {issueCounts[device.mac] ?? 0} Security Issues. Open Fixes.</button></li>)}</ul>
   </div>;
 }

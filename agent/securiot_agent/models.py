@@ -26,6 +26,8 @@ class Device:
     dests: list[str] = field(default_factory=list)
     last_seen: float | None = None
     snapshot_at: float | None = None
+    # Wi-Fi presence, kept apart from status so it never enters saved enforcement state.
+    present: bool = True
     dns_queries: list[str] = field(default_factory=list)
     risk_facts: dict[str, Any] = field(default_factory=dict)
     assessment: dict[str, Any] = field(default_factory=dict)
