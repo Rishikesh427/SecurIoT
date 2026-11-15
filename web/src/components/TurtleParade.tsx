@@ -67,4 +67,8 @@ export function TurtleParade() {
   </footer>;
 }
 
+export function TurtleCompanion({ variant = 0 }: { variant?: number }) {
+  return <span className="turtle-companion inline-flex shrink-0" aria-hidden="true"><Turtle {...family[variant % family.length]} /></span>;
+}
+
 export function TurtleHelpIcon(){return <span className="relative block h-8 w-10 [&_svg]:h-full [&_svg]:w-full" aria-hidden="true"><Turtle {...family[0]}/><span className="absolute left-[21px] top-[3px] text-[16px] font-bold text-white">?</span></span>;}
