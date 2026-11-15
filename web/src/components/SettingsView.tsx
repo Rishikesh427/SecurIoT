@@ -66,7 +66,7 @@ export function SettingsView({ policy, devices, onSave }: { policy: Policy; devi
         style={{ transitionTimingFunction: "var(--ease-apple)" }}
       >
         <div className="flex items-center gap-2 rounded-full bg-white/80 p-1.5 pl-5 shadow-[0_10px_40px_rgba(0,0,0,0.12)] ring-1 ring-hairline backdrop-blur-xl">
-          <span className="pr-2 text-[14px] text-ink-2">{saved && !dirty ? "Settings saved" : "Unsaved changes"}</span>
+          <span className="pr-2 text-[18px] text-ink-2">{saved && !dirty ? "Settings saved" : "Unsaved changes"}</span>
           {dirty && (
             <>
               <Button onClick={() => setDraft(policy)}>Discard</Button>
@@ -84,9 +84,9 @@ export function SettingsView({ policy, devices, onSave }: { policy: Policy; devi
 function Group({ title, footer, children }: { title: string; footer?: string; children: ReactNode }) {
   return (
     <section>
-      <h3 className="mb-2 px-5 text-[13px] font-semibold uppercase tracking-wide text-ink-3">{title}</h3>
+      <h3 className="mb-2 px-5 text-[17px] font-semibold uppercase tracking-wide text-ink-3">{title}</h3>
       <Card className="divide-y divide-hairline overflow-hidden">{children}</Card>
-      {footer && <p className="mt-2 px-5 text-[12px] leading-relaxed text-ink-3">{footer}</p>}
+      {footer && <p className="mt-2 px-5 text-[16px] leading-relaxed text-ink-3">{footer}</p>}
     </section>
   );
 }

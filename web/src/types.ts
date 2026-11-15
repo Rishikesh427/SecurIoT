@@ -105,6 +105,7 @@ export interface TokenResponse {
 
 export interface AuditRun {
   summary: string;
+  bullets?: string[];
 }
 
 /** GET /storage: whether data is persisted in Tiger Data or temporary demo storage. */

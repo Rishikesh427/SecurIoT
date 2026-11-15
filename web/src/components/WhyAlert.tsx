@@ -16,7 +16,7 @@ export function WhyAlert({ event }: { event: SecurEvent }) {
       aria-label="Why this alert?"
       className="space-y-3 rounded-xl border border-hairline p-4"
     >
-      <h3 className="font-semibold text-ink">Why this alert?</h3>
+      <h3 className="font-semibold text-ink">Why This Alert?</h3>
 
       <dl className="space-y-2 text-sm text-ink-2">
         <div>
@@ -45,13 +45,13 @@ export function WhyAlert({ event }: { event: SecurEvent }) {
 
         {typeof requested === "string" && (
           <div>
-            <dt className="font-medium">Requested action</dt>
+            <dt className="font-medium">Requested Action</dt>
             <dd>{actionNames[requested] ?? requested}</dd>
           </div>
         )}
 
         <div>
-          <dt className="font-medium">Safety-gate / response decision</dt>
+          <dt className="font-medium">Safety-gate / Response Decision</dt>
           <dd>{decisionText(event)}</dd>
           {decisionCode(event) && (
             <dd className="mt-1 font-mono text-xs">

@@ -7,12 +7,12 @@ import { Button, Card, SectionTitle } from "./ui";
 export function AttentionList({ issues, onFix }: { issues: Issue[]; onFix: (issue: Issue) => void }) {
   return (
     <div id="attention">
-      <SectionTitle action={issues.length ? <span className="text-[13px] text-ink-3">Most urgent first</span> : undefined}>
-        What needs attention
+      <SectionTitle action={issues.length ? <span className="text-[17px] text-ink-3">Most urgent first</span> : undefined}>
+        Protect your devices
       </SectionTitle>
       <Card className="overflow-hidden">
         {issues.length === 0 ? (
-          <div className="flex items-center gap-3 px-5 py-5 text-[15px] text-ink-2">
+          <div className="flex items-center gap-3 px-5 py-5 text-[19px] text-ink-2">
             <OkIcon size={20} className="text-ok" aria-hidden />
             Nothing needs your attention right now.
           </div>
@@ -27,10 +27,9 @@ export function AttentionList({ issues, onFix }: { issues: Issue[]; onFix: (issu
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-[15px] font-medium text-ink">{issue.title}</span>
+                      <span className="text-[19px] font-medium text-ink">{issue.title}</span>
                       <SeverityTag severity={issue.severity} />
                     </div>
-                    <p className="mt-0.5 text-[13px] leading-relaxed text-ink-2">{issue.summary}</p>
                   </div>
                   <Button variant={issue.severity === "critical" ? "primary" : "secondary"} onClick={() => onFix(issue)} className="shrink-0">
                     <Wrench size={14} aria-hidden />

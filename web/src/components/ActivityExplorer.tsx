@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Device, SecurEvent } from "../types";
+import { ListFilter } from "lucide-react";
 import { eventMeta } from "../lib/format";
 import {
   eventOutcome,
@@ -25,6 +26,7 @@ export function ActivityExplorer({
   devices: Device[];
   onSelect: (mac: string) => void;
 }) {
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [device, setDevice] = useState("all");
   const [range, setRange] = useState("all");
   const [kind, setKind] = useState("all");
@@ -61,7 +63,7 @@ export function ActivityExplorer({
     .sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts));
 
   const selectClass =
-    "mt-1 w-full rounded-lg border border-hairline bg-white px-3 py-2 text-sm text-ink";
+    "min-w-0 flex-1 rounded-lg border border-hairline bg-white px-3 py-2 text-sm text-ink";
 
   function reset() {
     setDevice("all");
@@ -72,11 +74,16 @@ export function ActivityExplorer({
 
   return (
     <div className="space-y-4">
-      <fieldset className="rounded-xl border border-hairline p-4">
-        <legend className="px-1 text-sm font-medium">Filter activity</legend>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-[23px] font-semibold">Recent Activity</h2>
+        <button type="button" aria-label="Filter Activity" title="Filters apply to loaded events, not the full server history." aria-expanded={filtersOpen} aria-controls="activity-filters" onClick={() => setFiltersOpen(value => !value)}
+          className="flex items-center gap-2 rounded-xl border border-hairline px-4 py-3 transition-transform hover:bg-fill active:scale-95"><ListFilter size={22} /><span>Filters{[device, range, kind, outcome].some(value => value !== 'all') ? ' •' : ''}</span></button>
+      </div>
+      {filtersOpen && <fieldset id="activity-filters" className="animate-expand space-y-3">
+        <legend className="sr-only">Filter Activity</legend>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <label className="text-sm">
+          <label className="flex min-w-0 items-center gap-3 text-sm">
             Device
             <select
               className={selectClass}
@@ -92,7 +99,7 @@ export function ActivityExplorer({
             </select>
           </label>
 
-          <label className="text-sm">
+          <label className="flex min-w-0 items-center gap-3 text-sm">
             Time
             <select
               className={selectClass}
@@ -105,8 +112,8 @@ export function ActivityExplorer({
             </select>
           </label>
 
-          <label className="text-sm">
-            Event type
+          <label className="flex min-w-0 items-center gap-3 text-sm">
+            Event Type
             <select
               className={selectClass}
               value={kind}
@@ -121,8 +128,8 @@ export function ActivityExplorer({
             </select>
           </label>
 
-          <label className="text-sm">
-            Action outcome
+          <label className="flex min-w-0 items-center gap-3 text-sm">
+            Action Outcome
             <select
               className={selectClass}
               value={outcome}
@@ -143,14 +150,9 @@ export function ActivityExplorer({
           onClick={reset}
           className="mt-3 text-sm font-medium underline"
         >
-          Reset filters
+          Reset
         </button>
-      </fieldset>
-
-      <p className="text-xs text-ink-3" role="status">
-        Showing {filtered.length} of {events.length} loaded events.
-        Filters do not search older server history or the separate command audit log.
-      </p>
+      </fieldset>}
 
       {filtered.length === 0 ? (
         <p className="rounded-xl border border-hairline p-5 text-sm">

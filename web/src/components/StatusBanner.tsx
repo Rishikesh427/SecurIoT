@@ -55,10 +55,10 @@ export function StatusBanner({
           <t.Icon size={30} strokeWidth={1.9} aria-hidden />
         </span>
         <div className="max-w-[640px]">
-          <h1 key={headline} className="animate-fade-in text-[22px] font-semibold leading-tight tracking-[-0.015em] text-ink sm:text-[26px]">
+          <h1 key={headline} className="animate-fade-in text-[26px] font-semibold leading-tight tracking-[-0.015em] text-ink sm:text-[26px]">
             {headline}
           </h1>
-          <p className="mt-0.5 text-[15px] leading-snug text-ink-2">
+          <p className="mt-0.5 text-[19px] leading-snug text-ink-2">
             {sub}
             {tone !== "ok" && (
               <button onClick={onReview} className="ml-2 font-semibold text-ink underline-offset-4 hover:underline">
@@ -70,8 +70,8 @@ export function StatusBanner({
       </div>
       <div className="flex shrink-0 items-center gap-4 rounded-2xl bg-white/70 px-4 py-2.5 ring-1 ring-hairline backdrop-blur">
         <div>
-          <div className="text-[15px] font-medium text-ink">Automatic protection</div>
-          <div className="text-[13px] text-ink-2">{!hasPolicy ? "Not available yet" : armed ? "On" : "Off"}</div>
+          <div className="text-[19px] font-medium text-ink">Automatic protection</div>
+          <div className="text-[17px] text-ink-2">{!hasPolicy ? "Not available yet" : armed ? "On" : "Off"}</div>
         </div>
         <Switch label="Automatic protection" checked={armed} disabled={!hasPolicy} onChange={onArm} />
       </div>

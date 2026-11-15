@@ -5,35 +5,41 @@ import type { AdvisorAnswer, Device } from '../src/types';
 
 const { api } = vi.hoisted(() => ({ api: { advisorChat: vi.fn(), advisorTriage: vi.fn() } }));
 vi.mock('../src/api/client', () => ({ api, USE_MOCK: false }));
-const device = { mac: '02:00:00:00:00:01', label: 'Camera', name: 'camera', type: 'unknown', risk: 70,
-  risk_adjusted: 78, ai: { status: 'ready', source: 'gemini', assessment: 'Review exposed services.',
+const device = { mac: '02:00:00:00:00:01', label: 'Camera', name: 'camera', type: 'unknown', band: 'high', risk: 70,
+  reasons: ['Reported Telnet exposure (+15)'], risk_adjusted: 78, ai: { status: 'ready', source: 'gemini', assessment: 'Review exposed services.',
     likely_type: 'camera', expected_behavior: 'It may stream video.', top_risk: 'Telnet', next_step: 'Disable Telnet.',
     confidence: 'medium', delta: 8, delta_reason: 'Combined exposure.', risk_adjusted: 78 } } as Device;
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
+});
 afterEach(cleanup);
 
-it('shows the score breakdown and labels inferred types and expected behavior', () => {
+it('keeps the score simple and opens its breakdown on demand', () => {
   render(<DeviceAdvisor device={device} />);
-  expect(screen.getByText(/Rules 70 · AI \+8/).textContent).toContain('Displayed 78/100');
-  expect(screen.getByText('AI guess:')).toBeTruthy();
-  expect(screen.getByText('Expected behavior (hypothesis):')).toBeTruthy();
+  expect(screen.getByText('This device is high risk.', {exact:false})).toBeTruthy();
+  expect(screen.queryByText(/Rules 70 · AI/)).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Why?' }));
+  expect(screen.getByRole('dialog', { name: 'Rules Risk Breakdown' })).toBeTruthy();
+  expect(screen.getByText('Reported Telnet exposure')).toBeTruthy();
 });
 
 it('bounds chat history and labels offline replies', async () => {
   api.advisorChat.mockResolvedValue({ source: 'rules', answer: 'Use local rules to change the password. '.repeat(25) });
   render(<DeviceAdvisor device={device} />);
   for (let i = 0; i < 5; i++) {
-    fireEvent.change(screen.getByLabelText('Your question'), { target: { value: `Question ${i}` } });
-    fireEvent.submit(screen.getByRole('button', { name: 'Ask advisor' }).closest('form')!);
+    fireEvent.change(screen.getByLabelText('Ask about the next steps'), { target: { value: `Question ${i}` } });
+    fireEvent.submit(screen.getByRole('button', { name: 'Ask Advisor' }).closest('form')!);
     await waitFor(() => expect(api.advisorChat).toHaveBeenCalledTimes(i + 1));
-    await waitFor(() => expect((screen.getByLabelText('Your question') as HTMLInputElement).disabled).toBe(false));
+    await waitFor(() => expect((screen.getByLabelText('Ask about the next steps') as HTMLInputElement).disabled).toBe(false));
   }
   const [mac, question, history] = api.advisorChat.mock.calls[4];
   expect(mac).toBe(device.mac); expect(question).toBe('Question 4');
   expect(history).toHaveLength(6);
   expect(history.every((t: { text: string }) => t.text.length <= 800)).toBe(true);
-  expect(screen.getByText(/This reply uses local rules/)).toBeTruthy();
+  expect(screen.getByText(/Local rules reply/)).toBeTruthy();
 });
 
 it('keeps a pending reply with its device when selection changes', async () => {
@@ -62,7 +68,23 @@ it('ranks devices and opens the selected device without performing actions', asy
 it('retains a failed question so the user can retry', async () => {
   api.advisorChat.mockRejectedValue(new Error('Advisor is busy'));
   render(<DeviceAdvisor device={device} />);
-  fireEvent.click(screen.getByRole('button', { name: 'How do I harden it?' }));
+  fireEvent.click(screen.getByRole('button', { name: 'How do I protect it?' }));
   expect((await screen.findByRole('alert')).textContent).toBe('Advisor is busy');
-  expect((screen.getByLabelText('Your question') as HTMLInputElement).value).toBe('How do I harden it?');
+  expect((screen.getByLabelText('Ask about the next steps') as HTMLInputElement).value).toBe('How do I protect it?');
+});
+
+it('adds the question immediately on form submission and accepts the search icon', async () => {
+  let resolve!: (value: AdvisorAnswer) => void;
+  api.advisorChat.mockReturnValue(new Promise<AdvisorAnswer>(done => { resolve = done; }));
+  render(<DeviceAdvisor device={device} />);
+  fireEvent.change(screen.getByLabelText('Ask about the next steps'), { target: { value: 'First question' } });
+  fireEvent.submit(screen.getByRole('button', { name: 'Ask Advisor' }).closest('form')!);
+  expect(screen.getByRole('log').textContent).toContain('First question');
+  resolve({ source: 'gemini', answer: 'Review settings.' });
+  await screen.findByText('Review settings.', { exact: false });
+  api.advisorChat.mockResolvedValue({ source: 'gemini', answer: 'Second answer.' });
+  fireEvent.change(screen.getByLabelText('Ask about the next steps'), { target: { value: 'Second question' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Ask Advisor' }));
+  await waitFor(() => expect(api.advisorChat).toHaveBeenCalledTimes(2));
+  expect(screen.getByRole('log').textContent).toContain('Second question');
 });

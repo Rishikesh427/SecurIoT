@@ -26,6 +26,6 @@ def router(current_user):
             result = {'summary': result}
         if not isinstance(result, dict) or not isinstance(result.get('summary'), str) or not result['summary'].strip():
             raise HTTPException(502, "Person C's digest returned an invalid result")
-        return {'summary': result['summary']}
+        return {'summary': result['summary'], 'bullets': person_c_digest.consumer_digest(history)}
 
     return routes
