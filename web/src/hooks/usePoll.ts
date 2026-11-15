@@ -1,21 +1,24 @@
 import { useEffect, useRef } from "react";
 
-/** Calls `fn` immediately and then every `ms` while `enabled`. */
+/** One request at a time. Schedule the next poll only after completion. */
 export function usePoll(fn: () => void | Promise<void>, ms: number, enabled = true) {
   const saved = useRef(fn);
   saved.current = fn;
-
   useEffect(() => {
     if (!enabled) return;
-    let alive = true;
-    const tick = async () => {
-      if (alive) await saved.current();
-    };
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    async function tick() {
+      try {
+        await saved.current();
+      } catch (error) {
+        // Consumers should surface errors; keep the poller alive either way.
+        console.warn("Dashboard poll failed", error instanceof Error ? error.name : "Error");
+      } finally {
+        if (!stopped) timer = setTimeout(tick, ms);
+      }
+    }
     void tick();
-    const id = setInterval(tick, ms);
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
+    return () => { stopped = true; clearTimeout(timer); };
   }, [ms, enabled]);
 }

@@ -48,7 +48,7 @@ export function Heatmap({ devices, events, now }: { devices: DashDevice[]; event
   return (
     <div ref={root} className="space-y-4">
       <div className="flex items-center justify-between gap-4">
-        <h2 className="t-head">Anomaly heatmap</h2>
+        <h1 className="t-head">Activity</h1>
         <Segmented<Size> value={size} onChange={setSize} options={[{ value: "1m", label: "1 min" }, { value: "5m", label: "5 min" }, { value: "1h", label: "1 hour" }]} />
       </div>
       <p className="t-body text-ink-2">Each square is one {unit}. Darker orange means a more serious warning; red means the device was quarantined.</p>

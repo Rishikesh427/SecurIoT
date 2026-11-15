@@ -30,6 +30,8 @@ services:
     security_opt:
       - no-new-privileges:true
   web:
+    environment:
+      VITE_PROXY_TARGET: http://api:8000
     build:
       context: .
       dockerfile: web/Dockerfile

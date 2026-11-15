@@ -1,12 +1,14 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { DeviceControls } from "../DeviceControls";
 import { DeviceAdvisor } from "./Advisor";
+import { ReadAloud } from "./ReadAloud";
+import { titleCase } from "../lib/titles";
 import { ChevronDown } from "lucide-react";
-import { bandLabel, bytes, clock, confidenceLabel, eventMeta, isContained, severityDot } from "../lib/format";
-import { plainEvent, plainReason } from "../lib/plain";
-import { cleanupSteps, deviceSummary, isIncident, summarize } from "../lib/incident";
+import { bandLabel, bytes, clock, eventMeta, isContained, severityDot } from "../lib/format";
+import { plainEvent } from "../lib/plain";
+import { cleanupSteps } from "../lib/incident";
 import type { ActionName, DashDevice, Policy, SecurEvent } from "../types";
-import { Button, Card, RiskRing, Status, Tag } from "./ui";
+import { Button, Card, Status, Tag } from "./ui";
 
 const yesNo = (v: boolean | null) => (v == null ? "Unknown" : v ? "Yes" : "No");
 
@@ -19,6 +21,7 @@ export function DeviceDetail({
   canAct,
   policy,
   pending,
+  audioEnabled = true,
 }: {
   device: DashDevice;
   events: SecurEvent[];
@@ -28,39 +31,40 @@ export function DeviceDetail({
   canAct: boolean;
   policy: Policy | null;
   pending?: string;
+  audioEnabled?: boolean;
 }) {
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !document.querySelector("dialog[open]")) onClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
   const mine = events.filter((e) => e.mac === device.mac);
   const contained = isContained(device.status);
-  const incident = mine.find(isIncident);
-  // Once restored, "it's been isolated" is no longer true; fall back to the risk summary.
-  const summary = incident && (contained || !incident.actions_taken.length) ? summarize(incident, device) : deviceSummary(device);
+  const summary = contained ? (device.status === "wan_blocked" ? "Internet access is restricted. Review the fixes before restoring access." : "This device is quarantined. Review the fixes before restoring access.")
+    : device.band === "high" ? "Reported risks need your attention. Review the score and next step."
+    : device.band === "medium" ? "Review this device's reported risks and available fixes."
+    : "Review the available device information and suggested fixes.";
   const steps = cleanupSteps(device);
-  const reasons = device.reasons.map(plainReason);
   const [showTech, setShowTech] = useState(false);
+  const [showActivity, setShowActivity] = useState(false);
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end">
       <div className="absolute inset-0 animate-fade-in bg-black/20 backdrop-blur-[2px]" onClick={onClose} />
-      <aside className="relative flex h-full w-full max-w-[520px] animate-sheet-in flex-col overflow-y-auto bg-[#fbfbfd] shadow-[-20px_0_60px_rgba(0,0,0,0.08)]">
+      <aside className="relative flex h-full w-full max-w-[640px] animate-sheet-in flex-col overflow-y-auto bg-[#fbfbfd] shadow-[-20px_0_60px_rgba(0,0,0,0.08)]">
         <header className="sticky top-0 z-10 flex items-center justify-between border-b border-hairline bg-[#fbfbfd]/80 px-6 py-3 backdrop-blur-xl">
-          <span className="text-[13px] font-medium text-ink-2">Device</span>
-          <Button variant="plain" className="h-8 px-2 text-[15px] font-semibold text-ink" onClick={onClose}>
+          <span className="text-[17px] font-medium text-ink-2">Device</span>
+          <Button variant="plain" className="h-8 px-2 text-[19px] font-semibold text-ink" onClick={onClose}>
             Done
           </Button>
         </header>
 
         <div className="space-y-6 px-6 pb-10 pt-6">
           <div className="flex items-center gap-5">
-            <RiskRing risk={device.risk_adjusted ?? device.risk} band={device.band} size={76} />
             <div className="min-w-0">
-              <h2 className="text-[24px] font-semibold leading-tight tracking-tight text-ink">{device.label}</h2>
-              <p className="mt-1 text-[14px] text-ink-2">
+              <h2 className="text-[28px] font-semibold leading-tight tracking-tight text-ink">{device.label}</h2>
+              <p className="mt-1 text-[18px] text-ink-2">
                 {[device.vendor, device.model].filter(Boolean).join(" ") || "Unknown maker"}
               </p>
               <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -76,68 +80,23 @@ export function DeviceDetail({
             busy={busy} readOnly={!canAct} onAction={onAction} />
 
           {contained && (
-            <div className="rounded-2xl bg-warn/[0.08] px-4 py-3 text-[14px] leading-relaxed text-ink">
-              <span className="font-semibold">Contained, not fixed.</span> The device is isolated, but it stays infected until you follow the steps
-              below.
+            <div className="rounded-2xl bg-warn/[0.08] px-4 py-3 text-[18px] leading-relaxed text-ink">
+              <span className="font-semibold">Contained, not fixed.</span> Access is restricted. Containment does not establish that malware is present or that the device has been repaired.
             </div>
           )}
 
-          <Section
-            title="Summary"
-            aside={"source" in summary ? (summary.source === "gemini" ? "Explained by Gemini" : summary.source === "pending" ? "Gemini is writing an explanation" : undefined) : undefined}
-          >
-            <Card className="px-5 py-4">
-              <p className="text-[15px] leading-relaxed text-ink">{summary.body}</p>
-              <p className="mt-3 text-[14px] leading-relaxed text-ink-2">{summary.next}</p>
-            </Card>
+          <Section title="Summary">
+            <Card className="px-5 py-4"><p className="leading-relaxed text-ink">{summary}</p></Card>
           </Section>
-
-          <DeviceAdvisor key={device.mac} device={device} />
-
-          <Section title="Rules risk breakdown" aside={confidenceLabel[device.confidence]}>
-            <Card className="divide-y divide-hairline">
-              {reasons.length === 0 ? (
-                <p className="px-5 py-4 text-[14px] text-ink-3">No risk factors.</p>
-              ) : (
-                <>
-                  {reasons.map((r) => (
-                    <div key={r.technical} className="px-5 py-3">
-                      <div className="flex items-baseline justify-between gap-4">
-                        <span className="text-[14px] text-ink">
-                          {r.plain}
-                          {r.plain !== r.technical && <span className="ml-2 text-[12px] text-ink-3">{r.technical}</span>}
-                        </span>
-                        {r.points != null && <span className="text-[14px] font-semibold tabular-nums text-ink">+{r.points}</span>}
-                      </div>
-                      {r.points != null && (
-                        <div className="mt-2 h-1 overflow-hidden rounded-full bg-fill">
-                          <div
-                            className={`h-full rounded-full ${/probing|anomal/i.test(r.technical) ? "bg-bad" : "bg-ink"}`}
-                            style={{ width: `${(r.points / 40) * 100}%`, transition: "width 600ms var(--ease-apple)" }}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                  <div className="flex items-baseline justify-between px-5 py-3">
-                    <span className="text-[14px] text-ink-2">Total, capped at 100</span>
-                    <span className="text-[17px] font-semibold tabular-nums text-ink">{device.risk}</span>
-                  </div>
-                </>
-              )}
-            </Card>
-            {device.simulated && device.type === "camera" && (
-              <p className="mt-2 px-1 text-[12px] text-ink-3">Vendor, model, end-of-life and KEV come from the simulated camera persona.</p>
-            )}
-          </Section>
+          <DeviceAdvisor key={device.mac} device={device} audioEnabled={audioEnabled} />
 
           {steps.length > 0 && (
-            <Section title="What to do">
+            <Section title="Defend Your Device" action={<ReadAloud text={steps.join(" ")} enabled={audioEnabled} label="Read Device Defenses" iconOnly />} >
               <Card className="divide-y divide-hairline">
                 {steps.map((s, i) => (
                   <div key={s} className="flex gap-4 px-5 py-3.5">
-                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-fill text-[12px] font-semibold text-ink-2">{i + 1}</span>
-                    <span className="text-[14px] leading-relaxed text-ink">{s}</span>
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-fill text-[16px] font-semibold text-ink-2">{i + 1}</span>
+                    <span className="text-[18px] leading-relaxed text-ink">{s}</span>
                   </div>
                 ))}
               </Card>
@@ -148,9 +107,9 @@ export function DeviceDetail({
             <button
               onClick={() => setShowTech((v) => !v)}
               aria-expanded={showTech}
-              className="mb-2 flex w-full items-center justify-between px-1 text-[13px] font-semibold uppercase tracking-wide text-ink-3 hover:text-ink-2"
+              className="mb-2 flex w-full items-center justify-between px-1 text-[17px] font-semibold tracking-wide text-ink-3 hover:text-ink-2"
             >
-              Technical details
+              Technical Details
               <ChevronDown size={16} className={`transition-transform duration-300 ${showTech ? "rotate-180" : ""}`} aria-hidden />
             </button>
             {showTech && (
@@ -169,10 +128,14 @@ export function DeviceDetail({
             )}
           </section>
 
-          <Section title="Recent activity">
+          <section>
+            <button type="button" onClick={() => setShowActivity(value => !value)} aria-expanded={showActivity} aria-controls="device-recent-activity" className="mb-2 flex w-full items-center justify-between px-1 font-semibold text-ink-3">
+              Recent Activity<ChevronDown size={16} className={`transition-transform ${showActivity ? "rotate-180" : ""}`} aria-hidden />
+            </button>
+            {showActivity && <div id="device-recent-activity" className="animate-expand">
             <Card className="divide-y divide-hairline">
               {mine.length === 0 ? (
-                <p className="px-5 py-4 text-[14px] text-ink-3">None.</p>
+                <p className="px-5 py-4 text-[18px] text-ink-3">None.</p>
               ) : (
                 mine.slice(0, 10).map((e) => {
                   const m = eventMeta[e.kind];
@@ -180,30 +143,32 @@ export function DeviceDetail({
                     <div key={e.id} className="flex items-start gap-3 px-5 py-3">
                       <span className={`mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full ${severityDot[m?.severity ?? "info"]}`} />
                       <div className="min-w-0 flex-1">
-                        <div className="flex justify-between gap-3 text-[14px]">
+                        <div className="flex justify-between gap-3 text-[18px]">
                           <span className="text-ink">{plainEvent(e)}</span>
-                          <time className="text-[12px] tabular-nums text-ink-3">{clock(e.ts)}</time>
+                          <time className="text-[16px] tabular-nums text-ink-3">{clock(e.ts)}</time>
                         </div>
-                        {m && <div className="text-[12px] text-ink-3">{m.label}</div>}
+                        {m && <div className="text-[16px] text-ink-3">{m.label}</div>}
                       </div>
                     </div>
                   );
                 })
               )}
             </Card>
-          </Section>
+            </div>}
+          </section>
         </div>
       </aside>
     </div>
   );
 }
 
-function Section({ title, aside, children }: { title: string; aside?: string; children: ReactNode }) {
+function Section({ title, aside, action, children }: { title: string; aside?: string; action?: ReactNode; children: ReactNode }) {
   return (
     <section>
       <div className="mb-2 flex items-baseline justify-between px-1">
-        <h3 className="text-[13px] font-semibold uppercase tracking-wide text-ink-3">{title}</h3>
-        {aside && <span className="text-[12px] text-ink-3">{aside}</span>}
+        <h3 className="text-[17px] font-semibold tracking-wide text-ink-3">{titleCase(title)}</h3>
+        {action}
+        {aside && <span className="text-[16px] text-ink-3">{aside}</span>}
       </div>
       {children}
     </section>
@@ -212,9 +177,9 @@ function Section({ title, aside, children }: { title: string; aside?: string; ch
 
 function Detail({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div className="flex items-baseline justify-between gap-6 px-5 py-3 text-[14px]">
+    <div className="flex items-baseline justify-between gap-6 px-5 py-3 text-[18px]">
       <span className="shrink-0 text-ink-2">{label}</span>
-      <span className={`truncate text-right text-ink ${mono ? "font-mono text-[13px]" : ""}`}>{value}</span>
+      <span className={`truncate text-right text-ink ${mono ? "font-mono text-[17px]" : ""}`}>{value}</span>
     </div>
   );
 }

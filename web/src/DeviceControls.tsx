@@ -19,7 +19,7 @@ export function DeviceControls({ mac, policy, pending, busy, readOnly, onAction 
       onClick={() => onAction('quarantine', mac)}>Quarantine</Button>
     <Button className="w-full" disabled={readOnly || busy || !!pending} title="Remove quarantine and internet restrictions"
       onClick={() => onAction('restore', mac)}>Restore access</Button>
-    <p className="text-[13px] text-ink-2">Manual quarantine overrides automatic timing delays. Restore removes restrictions and gives the device a recovery grace period.</p>
+    <p className="text-[17px] text-ink-2">Manual quarantine overrides automatic timing delays. Restore removes restrictions and gives the device a recovery grace period.</p>
     {pending ? <small role="status">{pending === 'quarantine' ? 'Quarantine' : 'Restore'} queued; awaiting agent acknowledgement.</small>
       : reason && <small>{reason}</small>}
   </div>;

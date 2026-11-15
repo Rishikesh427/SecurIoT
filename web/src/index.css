@@ -1,6 +1,15 @@
 @import "tailwindcss";
 
 @theme {
+  --text-xs: 16px;
+  --text-sm: 18px;
+  --text-base: 20px;
+  --text-lg: 22px;
+  --text-xl: 24px;
+  --text-2xl: 28px;
+  --text-3xl: 34px;
+  --text-4xl: 40px;
+  --text-5xl: 52px;
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Inter, Arial, sans-serif;
 
   --color-ink: #1d1d1f;
@@ -95,9 +104,15 @@ input[type="range"] {
 html, body { background: var(--color-white); color: var(--color-ink); }
 
 @layer components {
-  .t-head { font-size: 22px; font-weight: 600; line-height: 1.2; letter-spacing: -.02em; }
-  .t-sub  { font-size: 15px; font-weight: 600; line-height: 1.3; }
-  .t-body { font-size: 14px; line-height: 1.45; }
-  .t-cap  { font-size: 12px; line-height: 1.3; color: var(--color-ink-2); }
+  .t-head { font-size: 28px; font-weight: 600; line-height: 1.2; letter-spacing: -.02em; }
+  .t-sub  { font-size: 19px; font-weight: 600; line-height: 1.3; }
+  .t-body { font-size: 18px; line-height: 1.45; }
+  .t-cap  { font-size: 16px; line-height: 1.3; color: var(--color-ink-2); }
   .t-mono { font-family: var(--font-mono); }
+}
+body { font-size: 20px; line-height: 1.55; }
+button, input, select, textarea { font-family: inherit; }
+button:focus-visible, summary:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }

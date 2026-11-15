@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Moon, Sun, Volume2, VolumeX } from "lucide-react";
+import { Moon, Sun, Volume2, VolumeX, Settings } from "lucide-react";
 import gsap from "gsap";
 
 const KEY = "casawarden.theme";
@@ -20,6 +20,7 @@ function IconToggle({ state, label, onClick, children }: { state: unknown; label
   const first = useRef(true);
   useEffect(() => {
     if (first.current) { first.current = false; return; }
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     gsap.fromTo(icon.current, { rotate: -120, scale: 0.3, opacity: 0 }, { rotate: 0, scale: 1, opacity: 1, duration: 0.55, ease: "back.out(2)" });
   }, [state]);
   return (
@@ -39,8 +40,11 @@ export function ThemeToggle({ theme, onToggle }: { theme: Theme; onToggle: () =>
 
 export function SoundToggle({ muted, onToggle }: { muted: boolean; onToggle: () => void }) {
   return (
-    <IconToggle state={muted} onClick={onToggle} label={muted ? "Turn alert sound on" : "Turn alert sound off"}>
+    <IconToggle state={muted} onClick={onToggle} label={muted ? "Turn Audio On" : "Turn Audio Off"}>
       {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
     </IconToggle>
   );
+}
+export function SettingsToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return <IconToggle state={open} label="Settings" onClick={onToggle}><Settings size={18} /></IconToggle>;
 }

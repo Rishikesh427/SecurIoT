@@ -4,6 +4,7 @@ import App from '../src/App';
 import type { AuditEntry, Device, Policy } from '../src/types';
 const { api } = vi.hoisted(() => ({api:{capabilities:vi.fn(),devices:vi.fn(),events:vi.fn(),policy:vi.fn(),audit:vi.fn(),action:vi.fn(),storage:vi.fn(),hasFeed:vi.fn(),savePolicy:vi.fn()}}));
 vi.mock('../src/api/client', () => ({api,USE_MOCK:false,getToken:()=> 'test-token',setToken:vi.fn(),isMissing:()=>false,ApiError:class extends Error {status=0;}}));
+vi.mock('../src/components/NetworkMap', () => ({ default: ({devices,onSelect}: {devices: Device[];onSelect:(mac:string)=>void}) => <div>{devices.map(d=><button key={d.mac} onClick={()=>onSelect(d.mac)}>{d.label}</button>)}</div> }));
 const mac = '02:00:00:00:00:20';
 const policy: Policy = {learning_mode:false,protected_macs:[],ladder:{notify:true,block_wan:true,quarantine:true}};
 const device: Device = {mac,ip:'10.42.0.20',name:'Pi',label:'Demo Pi',type:'camera',vendor:null,ports:[],bytes_in:0,bytes_out:0,dests:[],last_seen:new Date().toISOString(),simulated:false,has_feed:false,eol:false,default_creds:false,cloud_only:false,anomaly:0,risk:0,band:'low',confidence:'low',reasons:[],status:'normal'};
@@ -12,6 +13,10 @@ beforeEach(() => {
   vi.clearAllMocks(); localStorage.clear(); rows=[];
   api.capabilities.mockResolvedValue({actions:true,auditRun:false}); api.devices.mockResolvedValue([device]);
   api.events.mockResolvedValue([]); api.policy.mockResolvedValue(policy); api.audit.mockImplementation(async()=>rows);
+  Object.defineProperty(window, 'matchMedia', { configurable: true, value: vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })) });
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
+  api.savePolicy.mockImplementation(async (value: Policy) => value);
   api.storage.mockResolvedValue({mode:'memory'}); api.hasFeed.mockReturnValue(false);
   api.action.mockResolvedValue({id:'command-1',created_at:new Date().toISOString(),action:'quarantine',mac});
 });
@@ -39,4 +44,59 @@ it('surfaces failed acknowledgement and allows another recovery request', async 
   rows=[{id:'audit-1',command_id:'command-1',ts:new Date().toISOString(),actor:'judge',action:'quarantine',mac,outcome:'failed'}];
   await waitFor(()=>expect(screen.getByText(/failed or cancelled/)).toBeTruthy(),{timeout:3500});
   expect((screen.getByRole('button',{name:'Restore access'}) as HTMLButtonElement).disabled).toBe(false);
+});
+
+it('keeps three left navigation pages and opens settings/tutorial as dialogs', async () => {
+  render(<App />);
+  expect(screen.getByRole('navigation',{name:'Main navigation'})).toBeTruthy();
+  expect(screen.getByRole('button',{name:'Home',exact:true})).toBeTruthy();
+  expect(screen.getByRole('button',{name:'Activity',exact:true})).toBeTruthy();
+  expect(screen.getByRole('button',{name:'Prevention',exact:true})).toBeTruthy();
+  expect(screen.queryByRole('button',{name:'Overview',exact:true})).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'Open tutorial'}));
+  expect(screen.getByRole('dialog',{name:'CasaWarden Tutorial'})).toBeTruthy();
+  fireEvent.click(screen.getByRole('button',{name:'Close CasaWarden Tutorial'}));
+  await screen.findByRole('button',{name:/Demo Pi/});
+  fireEvent.click(screen.getByRole('button',{name:'Settings',exact:true}));
+  expect(screen.getByRole('dialog',{name:'Settings'})).toBeTruthy();
+  fireEvent.click(screen.getByRole('button',{name:'Close Settings'}));
+  expect(screen.queryByRole('dialog')).toBeNull();
+});
+
+it('retains loaded devices when the optional event route times out', async () => {
+  api.events.mockRejectedValue(new Error('Activity request timed out'));
+  render(<App />);
+  expect(await screen.findByRole('button',{name:/Demo Pi/})).toBeTruthy();
+  expect(screen.queryByText(/Dashboard updates unavailable/)).toBeNull();
+  expect(screen.getByText(/Activity request timed out/)).toBeTruthy();
+});
+
+it('requests arming after inventory loads and preserves it during a new-device scan', async () => {
+  let current = {...policy, learning_mode:true};
+  api.policy.mockImplementation(async()=>current);
+  api.savePolicy.mockImplementation(async (value:Policy)=>{ current=value; return value; });
+  render(<App />);
+  expect(screen.getByRole('switch',{name:'Scanning'})).toBeTruthy();
+  const ready = await screen.findByRole('switch',{name:'Ready to Arm'}, {timeout:3500});
+  fireEvent.click(ready);
+  await screen.findByRole('switch',{name:'Armed'});
+  expect(api.savePolicy).toHaveBeenCalledWith(expect.objectContaining({learning_mode:false}));
+  api.devices.mockResolvedValue([device,{...device,mac:'02:00:00:00:00:21',label:'Guest phone'}]);
+  await screen.findByRole('switch',{name:'Scanning'}, {timeout:3500});
+  expect(current.learning_mode).toBe(false);
+  await screen.findByRole('switch',{name:'Armed'}, {timeout:3500});
+  expect(api.savePolicy).toHaveBeenCalledTimes(1);
+}, 10000);
+
+it('shows heatmap, recent activity and digest on Activity with a dismissible audit log', async () => {
+  render(<App />);
+  await screen.findByRole('button',{name:/Demo Pi/});
+  fireEvent.click(screen.getByRole('button',{name:'Activity',exact:true}));
+  expect(screen.getByRole('heading',{name:'Activity',exact:true})).toBeTruthy();
+  expect(screen.getByRole('heading',{name:'Recent Activity'})).toBeTruthy();
+  expect(screen.getByRole('heading',{name:'Security Digest'})).toBeTruthy();
+  fireEvent.click(screen.getByRole('button',{name:'Open Audit Log'}));
+  expect(screen.getByRole('dialog',{name:'Audit Log'})).toBeTruthy();
+  fireEvent.click(screen.getByRole('button',{name:'Close Audit Log'}));
+  expect(screen.queryByRole('dialog')).toBeNull();
 });

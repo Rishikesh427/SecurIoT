@@ -27,15 +27,15 @@ export function Login({ onLogin }: { onLogin: () => void }) {
   }
 
   const field =
-    "w-full rounded-xl bg-fill px-4 py-3 text-[15px] text-ink outline-none ring-1 ring-transparent transition placeholder:text-ink-3 focus:bg-white focus:ring-ink/20";
+    "w-full rounded-xl bg-fill px-4 py-3 text-[19px] text-ink outline-none ring-1 ring-transparent transition placeholder:text-ink-3 focus:bg-white focus:ring-ink/20";
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-white px-4">
       <form onSubmit={submit} className="w-full max-w-[360px] animate-rise-in">
         <div className="mb-10 flex flex-col items-center text-center">
           <Logo size={56} />
-          <h1 className="mt-6 text-[32px] font-semibold tracking-tight text-ink">CasaWarden</h1>
-          <p className="mt-1 text-[15px] text-ink-2">Security for the devices you can't patch.</p>
+          <h1 className="mt-6 text-[36px] font-semibold tracking-tight text-ink">CasaWarden</h1>
+          <p className="mt-1 text-[19px] text-ink-2">Security for the devices you can't patch.</p>
         </div>
         <div className="space-y-3">
           <input className={field} placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
@@ -48,11 +48,11 @@ export function Login({ onLogin }: { onLogin: () => void }) {
             autoComplete="current-password"
           />
         </div>
-        {error && <p className="mt-4 text-center text-[13px] text-bad">{error}</p>}
-        <Button type="submit" variant="primary" className="mt-6 h-12 w-full text-[15px]" disabled={busy}>
+        {error && <p className="mt-4 text-center text-[17px] text-bad">{error}</p>}
+        <Button type="submit" variant="primary" className="mt-6 h-12 w-full text-[19px]" disabled={busy}>
           {busy ? "Signing in" : "Sign in"}
         </Button>
-        {USE_MOCK && <p className="mt-5 text-center text-[12px] text-ink-3">Demo mode. Any username and password works.</p>}
+        {USE_MOCK && <p className="mt-5 text-center text-[16px] text-ink-3">Demo mode. Any username and password works.</p>}
       </form>
     </div>
   );

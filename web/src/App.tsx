@@ -1,36 +1,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, USE_MOCK, api, getToken, isMissing, setToken } from "./api/client";
-import { ActivityList } from "./components/ActivityList";
-import { AdvisorPriorities } from "./components/Advisor";
+import { TurtleParade } from "./components/TurtleParade";
+import { ActivityExplorer } from "./components/ActivityExplorer";
+import { Modal } from "./components/Modal";
+import { CircleHelp } from "lucide-react";
+import { deviceGroups, deviceIssueCounts } from "./lib/deviceGroups";
 import { ActivityView } from "./components/ActivityView";
-import { CameraCard } from "./components/CameraCard";
-import { ContainmentPanel } from "./components/ContainmentPanel";
 import { DeviceDetail } from "./components/DeviceDetail";
-import { DeviceList } from "./components/DeviceList";
 import { Login } from "./components/Login";
 import { HomeMap } from "./components/HomeMap";
 import { Heatmap } from "./components/Heatmap";
-import { SoundToggle, ThemeToggle, useTheme } from "./components/ThemeToggle";
+import { SettingsToggle, SoundToggle, ThemeToggle, useTheme } from "./components/ThemeToggle";
 import { Logo } from "./components/Logo";
 import { StorageBadge } from "./components/StorageBadge";
 import { SettingsView } from "./components/SettingsView";
 import { AttentionList } from "./components/AttentionList";
 import { FixSheet } from "./components/FixSheet";
-import { Sparkline } from "./components/Sparkline";
-import { StatusBanner } from "./components/StatusBanner";
-import { Button, Card, SectionTitle, Segmented } from "./components/ui";
-import { useCountUp } from "./hooks/useCountUp";
+import { Button, Card } from "./components/ui";
 import { usePoll } from "./hooks/usePoll";
-import { rate, useTraffic } from "./hooks/useTraffic";
+import { useTraffic } from "./hooks/useTraffic";
 import { deriveIssues, type Issue } from "./lib/issues";
-import { severityMeta } from "./lib/severity";
-import { playAlertTone, speak, unlockAudio } from "./lib/alert";
+import { playAlertTone, setAudioEnabled, speak, unlockAudio } from "./lib/alert";
 import { isContained, shortLabel } from "./lib/format";
 import { isIncident, summarize } from "./lib/incident";
 import { mockServer } from "./mock/mockServer";
 import type { ActionName, AuditEntry, DashDevice, Device, Policy, SecurEvent } from "./types";
 
-type Tab = "map" | "heatmap" | "overview" | "activity" | "settings";
+type Tab = "map" | "heatmap" | "overview";
 
 export default function App() {
   const [authed, setAuthed] = useState(() => !!getToken());
@@ -55,10 +51,20 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   const [canAct, setCanAct] = useState(false);
   const [canRunAudit, setCanRunAudit] = useState(false);
   const [offline, setOffline] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [policyFresh, setPolicyFresh] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [tutorialOpen, setTutorialOpen] = useState(false);
+  const [armingBusy, setArmingBusy] = useState(false);
+  const [lastDiscoveryAt, setLastDiscoveryAt] = useState<number | null>(null);
+  const knownMacs = useRef<Set<string> | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [muted, setMuted] = useState(false);
+  const [muted, setMuted] = useState(() => { try { return localStorage.getItem("casawarden.muted") === "true"; } catch { return false; } });
+  useEffect(() => { setAudioEnabled(!muted); try { localStorage.setItem("casawarden.muted", String(muted)); } catch { /* storage unavailable */ } }, [muted]);
   const [theme, toggleTheme] = useTheme();
   const [fixing, setFixing] = useState<Issue | null>(null);
   const [doneIds, setDoneIds] = useState<Set<string>>(loadDone);
@@ -66,32 +72,59 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [commands, setCommands] = useState<Record<string, {id: string; action: ActionName}>>({});
   const requestBusy = useRef(false);
+  const refreshBusy = useRef(false);
+  const policyRevision = useRef(0);
   const seenIncidents = useRef<Set<string> | null>(null);
 
   usePoll(() => setNow(Date.now()), 200);
 
-  useEffect(() => {
-    api.capabilities().then((c) => {
-      setCanAct(c.actions);
-      setCanRunAudit(c.auditRun);
-    });
-  }, []);
+  usePoll(async () => {
+    try { const c = await api.capabilities(); setCanAct(c.actions); setCanRunAudit(c.auditRun); }
+    catch { /* Core data polling reports connectivity separately. */ }
+  }, 30000);
 
   const refresh = useCallback(async () => {
+    if (refreshBusy.current) return;
+    refreshBusy.current = true;
+    const revision = policyRevision.current;
     try {
-      const [d, e, a] = await Promise.all([api.devices(), api.events(), api.audit().catch(() => null)]);
-      if (a) setAudit(a);
-      setRawDevices(d);
-      setEvents(e);
-      setOffline(false);
-      if (hasPolicy) {
-        try {
-          setPolicy(await api.policy());
-        } catch (err) {
-          if (!isMissing(err)) throw err;
-          setHasPolicy(false); // stop asking until the next reload
+      const results = await Promise.allSettled([
+        api.devices(), api.events(), api.audit(), hasPolicy ? api.policy() : Promise.resolve(null),
+      ] as const);
+      for (const result of results) {
+        if (result.status === "rejected" && result.reason instanceof ApiError && result.reason.status === 401) { onLogout(); return; }
+      }
+      const [deviceResult, eventResult, auditResult, policyResult] = results;
+      const partialWarnings: string[] = [];
+      const reason = (error: unknown) => error instanceof Error ? error.message : "Request failed";
+      if (deviceResult.status === "fulfilled") {
+        const next = deviceResult.value;
+        if (knownMacs.current === null || next.some((device) => !knownMacs.current!.has(device.mac))) setLastDiscoveryAt(Date.now());
+        knownMacs.current = new Set(next.map((device) => device.mac));
+        setRawDevices(next); setLoaded(true); setOffline(false); setConnectionError(null);
+      } else {
+        setOffline(true); setConnectionError(reason(deviceResult.reason));
+      }
+      if (eventResult.status === "fulfilled") setEvents(eventResult.value);
+      else partialWarnings.push(`Activity: ${reason(eventResult.reason)}`);
+      if (auditResult.status === "fulfilled") setAudit(auditResult.value);
+      else partialWarnings.push(`Audit: ${reason(auditResult.reason)}`);
+      if (revision !== policyRevision.current) {
+        // A policy save started after this refresh; ignore its stale policy response.
+      } else if (policyResult.status === "fulfilled" && policyResult.value) {
+        setPolicy(policyResult.value); setPolicyFresh(true);
+      } else {
+        setPolicyFresh(false);
+        if (policyResult.status === "rejected") {
+          if (isMissing(policyResult.reason)) setHasPolicy(false);
+          partialWarnings.push(`Policy: ${reason(policyResult.reason)}`);
         }
       }
+      setWarnings(partialWarnings);
+      // A slow optional endpoint must not discard successfully loaded devices.
+      if (deviceResult.status !== "fulfilled" || eventResult.status !== "fulfilled") return;
+      const d = deviceResult.value;
+      const e = eventResult.value;
 
       // Alert once per new incident (skip whatever already existed on first load).
       const incidents = e.filter(isIncident);
@@ -110,8 +143,8 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
       }
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) onLogout(); // token expired
-      else setOffline(true);
-    }
+      else { setOffline(true); setConnectionError(err instanceof Error ? err.message : "Dashboard update failed"); }
+    } finally { refreshBusy.current = false; }
   }, [muted, onLogout, hasPolicy]);
 
   usePoll(refresh, 2000);
@@ -164,27 +197,34 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   }, [audit, commands]);
 
   async function savePolicy(p: Policy) {
+    policyRevision.current++;
     try {
       setPolicy(await api.savePolicy(p));
     } catch (e) {
+      setPolicyFresh(false);
       flash(e instanceof Error ? e.message : "Couldn't save settings");
       throw e;
     }
   }
 
   async function setArmed(armed: boolean) {
-    if (!policy) return;
-    unlockAudio();
-    await savePolicy({ ...policy, learning_mode: !armed });
+    if (!policy || !policyFresh || offline || armingBusy) return;
+    unlockAudio(); setArmingBusy(true);
+    try { await savePolicy({ ...policy, learning_mode: !armed }); }
+    finally { setArmingBusy(false); }
   }
 
   const traffic = useTraffic(rawDevices);
   const rates = Object.fromEntries(Object.entries(traffic.byMac).map(([m, s]) => [m, s[s.length - 1] ?? 0]));
-  const feedDevice = devices.find((d) => d.has_feed);
   const selectedDevice = devices.find((d) => d.mac === selected);
   const isolated = devices.filter((d) => isContained(d.status));
   const armed = policy ? !policy.learning_mode : false;
   const issues = deriveIssues(devices, events, policy, { now, canAct }).filter((i) => !doneIds.has(i.id));
+  const groups = deviceGroups(devices, issues);
+  const issueCounts = deviceIssueCounts(devices, issues);
+  // Inventory refresh state, not a claim that a port scan or agent arm completed.
+  const scanning = !loaded || offline || devices.length === 0 || lastDiscoveryAt === null || now - lastDiscoveryAt < 2000;
+  const armLabel = scanning ? "Scanning" : armed ? "Armed" : "Ready to Arm";
 
   function markDone(issue: Issue) {
     const next = new Set([...doneIds, issue.id]);
@@ -208,148 +248,73 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
 
   return (
     <div className="min-h-screen bg-white text-ink">
-      <header className="sticky top-0 z-30 border-b border-hairline bg-white/75 backdrop-blur-xl backdrop-saturate-150">
-        <div className="mx-auto grid h-14 max-w-[1200px] grid-cols-[1fr_auto_1fr] items-center gap-4 px-6">
-          <div className="flex items-center gap-2.5">
-            {/* LOGO SLOT: swap <Logo/> for <img src="/logo.svg" alt="" className="h-8 w-8" /> */}
-            <div className="grid h-8 w-8 place-items-center"><Logo size={28} /></div>
-            <span className="text-[17px] font-semibold tracking-tight">CasaWarden</span>
-          </div>
-          <Segmented<Tab>
-            value={tab}
-            onChange={setTab}
-            options={[
-              { value: "map", label: "Network map" },
-              { value: "heatmap", label: "Heatmap" },
-              { value: "overview", label: "Overview" },
-              { value: "activity", label: "Activity" },
-              { value: "settings", label: "Settings" },
-            ]}
-          />
-          <div className="flex items-center justify-end gap-1">
-            {isolated.length > 0 && canAct && (
-              <Button onClick={() => act("restore_all")} disabled={busy || Object.keys(commands).length > 0} className="h-8">
-                Restore all
-              </Button>
-            )}
-            <StorageBadge />
+      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-xl">
+        <div className="flex h-16 items-center justify-between gap-2 px-3 sm:px-6">
+          <div className="flex items-center gap-2"><Logo size={28} /><span className="hidden text-lg font-semibold sm:inline">CasaWarden</span></div>
+          <div className="flex flex-wrap items-center gap-1">
+            {isolated.length > 0 && canAct && <Button onClick={() => act("restore_all")} disabled={busy || offline || Object.keys(commands).length > 0} className="h-8">Restore all</Button>}
+            <div className="hidden lg:block"><StorageBadge /></div>
             <SoundToggle muted={muted} onToggle={() => { unlockAudio(); setMuted((m) => !m); }} />
             <ThemeToggle theme={theme} onToggle={toggleTheme} />
-            <Button variant="plain" className="h-8 px-3" onClick={onLogout}>
-              Sign out
-            </Button>
+            <SettingsToggle open={settingsOpen} onToggle={() => setSettingsOpen((value) => !value)} />
+            <Button variant="plain" className="h-8 px-3" onClick={onLogout}>Sign out</Button>
           </div>
-        </div>
-        <div
-          className={`overflow-hidden bg-fill text-center text-[13px] text-ink transition-all duration-500 ${offline ? "max-h-10 py-2.5" : "max-h-0 py-0"}`}
-          style={{ transitionTimingFunction: "var(--ease-apple)" }}
-        >
-          Can't reach the server. Commands remain pending until the agent reconnects.
         </div>
       </header>
-
-      <main className="mx-auto max-w-[1200px] px-6 pb-32 pt-10">
-        {tab === "map" && (
-          <div key="map" className="animate-rise-in">
-            <HomeMap devices={devices} rates={rates} attention={issues.length} theme={theme} onSelect={setSelected} />
+      <div className="flex min-h-[calc(100dvh-64px)]">
+        <nav aria-label="Main navigation" className="sticky top-16 h-[calc(100dvh-64px)] w-36 shrink-0 space-y-2 px-2 py-6 sm:w-48 sm:px-4">
+          {([{ value: "map", label: "Home" }, { value: "heatmap", label: "Activity" }, { value: "overview", label: "Prevention" }] as const).map((item) =>
+            <button key={item.value} aria-current={tab === item.value ? "page" : undefined} onClick={() => setTab(item.value)}
+              className={`w-full rounded-xl px-3 py-3 text-left text-sm font-medium transition-all ${tab === item.value ? "bg-ink text-white" : "text-ink-2 hover:bg-fill"}`}>{item.label}</button>)}
+        </nav>
+        <main className="min-w-0 flex-1 px-4 pb-32 pt-8 sm:px-8">
+          <div className="mx-auto max-w-[1200px] space-y-5">
+            {offline && <div role="alert" className="rounded-xl border border-hairline bg-fill p-4 text-sm">
+              Dashboard updates unavailable. {connectionError} Last received data is retained. Agent connectivity cannot be determined from this error.
+            </div>}
+            {warnings.length > 0 && <div role="alert" className="rounded-xl border border-hairline p-3 text-xs text-ink-2">{warnings.join(" · ")}</div>}
+            {Object.keys(commands).length > 0 && <p className="text-xs text-ink-3">{Object.keys(commands).length} command(s) awaiting agent acknowledgement. Check the audit log for results.</p>}
+            {tab === "map" && <div className="animate-rise-in"><HomeMap devices={devices} rates={rates} groups={groups} issueCounts={issueCounts} theme={theme} onSelect={setSelected}
+              status={<p className="flex items-center gap-2 text-xs text-ink-3"><span className={`h-2 w-2 rounded-full ${offline ? "bg-bad" : loaded ? "bg-ok" : "bg-gray-400"}`} />{offline ? "Updates unavailable" : loaded ? "Dashboard connected" : "Connecting"}{armed ? " · System engaged" : " · Learning mode"}</p>}
+              controls={<>
+                <button type="button" role="switch" aria-checked={armed} aria-label={armLabel}
+                  disabled={scanning || !policy || !policyFresh || armingBusy}
+                  onClick={() => void setArmed(!armed).catch(() => undefined)}
+                  title="Updates the response policy. Real containment also requires the agent's local arm permission. Scanning means inventory refresh, not a vulnerability scan."
+                  className={`rounded-full px-5 py-2 text-sm font-medium transition-all ${scanning ? "bg-gray-200 text-gray-500" : "bg-black text-white"} disabled:cursor-wait`}>{armingBusy ? "Saving…" : armLabel}</button>
+                <button type="button" aria-label="Open tutorial" onClick={() => setTutorialOpen(true)} className="grid h-9 w-9 place-items-center rounded-full text-ink transition-transform hover:rotate-12 hover:bg-fill"><CircleHelp size={20} /></button>
+              </>} /></div>}
+            {tab === "heatmap" && <div className="animate-rise-in space-y-10">
+              <Heatmap devices={devices} events={events} now={now} />
+              <section><ActivityExplorer events={events} devices={devices} onSelect={setSelected} /></section>
+              <ActivityView devices={devices} entries={audit} onAction={act} canAct={canAct && !offline} canRunAudit={canRunAudit && !offline} />
+            </div>}
+            {tab === "overview" && <div className="animate-rise-in space-y-6"><h1 className="t-head">Prevention</h1><AttentionList issues={issues} onFix={setFixing} /></div>}
           </div>
-        )}
-
-        {tab === "heatmap" && (
-          <div key="heatmap" className="animate-rise-in">
-            <Heatmap devices={devices} events={events} now={now} />
-          </div>
-        )}
-
-        {tab === "overview" && (
-          <div key="overview" className="animate-rise-in space-y-10">
-            <StatusBanner
-              issues={issues}
-              armed={armed}
-              hasPolicy={hasPolicy && !!policy}
-              onArm={setArmed}
-              onReview={() => document.getElementById("attention")?.scrollIntoView({ behavior: "smooth", block: "start" })}
-            />
-
-            <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-              <Stat label="Devices" value={devices.length} />
-              <Stat
-                label="Need attention"
-                value={issues.length}
-                color={issues.length ? severityMeta[issues[0].severity].color : undefined}
-              />
-              <Stat label="Cut off" value={isolated.length} color={isolated.length ? "text-sev-critical" : undefined} />
-              <Card className="flex flex-col justify-between px-5 py-4">
-                <div className="flex items-baseline justify-between">
-                  <span className="text-[13px] font-medium text-ink-2">Network traffic</span>
-                  <span className="flex items-center gap-1.5 text-[11px] font-medium text-ok">
-                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ok" />
-                    Live
-                  </span>
-                </div>
-                <div className="mt-2 flex items-end justify-between gap-3">
-                  <span className="text-[22px] font-semibold leading-none tracking-tight tabular-nums text-ink">{rate(traffic.total[traffic.total.length - 1] ?? 0)}</span>
-                  <Sparkline data={traffic.total} width={96} height={30} color="var(--color-ink)" />
-                </div>
-              </Card>
-            </section>
-
-            <AttentionList issues={issues} onFix={setFixing} />
-
-            <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_380px]">
-              <div className="space-y-10">
-                <DeviceList devices={devices} traffic={traffic} onSelect={setSelected} />
-                <AdvisorPriorities devices={devices} onSelect={setSelected} />
-                <div>
-                  <SectionTitle
-                    action={
-                      <button onClick={() => setTab("activity")} className="text-[14px] font-medium text-ink-2 transition-colors hover:text-ink">
-                        See all
-                      </button>
-                    }
-                  >
-                    Recent activity
-                  </SectionTitle>
-                  <ActivityList events={events} devices={devices} onSelect={setSelected} limit={6} />
-                </div>
-              </div>
-              <div className="space-y-4 lg:sticky lg:top-24 lg:self-start">
-                <SectionTitle>Status</SectionTitle>
-                {feedDevice && <CameraCard device={feedDevice} now={now} />}
-                <ContainmentPanel events={events} devices={devices} now={now} />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {tab === "activity" && (
-          <div key="activity" className="animate-rise-in">
-            <ActivityView devices={devices} events={events} onAction={act} onSelect={setSelected} canAct={canAct} canRunAudit={canRunAudit} />
-          </div>
-        )}
-
-        {tab === "settings" && !hasPolicy && (
-          <div key="settings-missing" className="mx-auto max-w-[680px] animate-rise-in">
-            <Card className="px-6 py-8 text-center">
-              <h2 className="text-[19px] font-semibold text-ink">Settings aren't available yet</h2>
-              <p className="mt-2 text-[15px] text-ink-2">The server doesn't have the policy route yet. Protection, response and protected devices will appear here once it does.</p>
-            </Card>
-          </div>
-        )}
-
-        {tab === "settings" && policy && (
-          <div key="settings" className="animate-rise-in">
-            <SettingsView policy={policy} devices={devices} onSave={savePolicy} />
-          </div>
-        )}
-      </main>
-
+        </main>
+      </div>
+      {settingsOpen && <Modal title="Settings" onClose={() => setSettingsOpen(false)}>
+        {!hasPolicy ? <Card className="p-5">Settings are unavailable because this server does not provide the policy route.</Card>
+          : policy ? <SettingsView policy={policy} devices={devices} onSave={savePolicy} /> : <p>Settings are loading. Check the dashboard connection if this persists.</p>}
+      </Modal>}
+      {tutorialOpen && <Modal title="CasaWarden tutorial" onClose={() => setTutorialOpen(false)}>
+        <div className="space-y-6 text-sm leading-relaxed">
+          <section><h3 className="font-semibold">1. Home and Devices</h3><p>Tap a device to see its reported facts, traffic, alerts and AI advisor. Safe, Caution and Danger count devices once each. Unknown facts do not establish safety.</p></section>
+          <section><h3 className="font-semibold">2. Scanning and Arming</h3><p>Scanning shows while inventory is connecting or a new device arrives. Ready to Arm appears after a stable inventory refresh. Click it to request an armed policy. The agent also needs local arm permission; this button cannot confirm physical enforcement.</p><p>If a device joins while armed, protection stays enabled while the inventory refreshes. Routine monitoring continues in the background. Click Armed to return the policy to learning mode.</p></section>
+          <section><h3 className="font-semibold">3. Activity and Audit</h3><p>Activity shows the heatmap and recent recorded events. Open an event for evidence and the recorded safety-gate decision. Run audit for a digest; open the audit log to inspect requested, applied, failed and simulated outcomes.</p></section>
+          <section><h3 className="font-semibold">4. Prevention</h3><p>Review Protect your devices for suggested actions. Multiple issues can refer to one device; a system-wide learning-mode issue is not an extra device.</p></section>
+          <section><h3 className="font-semibold">5. Safety and Recovery</h3><p>Protected devices, learning mode, startup warmup, cooldown and restore grace constrain automatic actions. Restore returns access; it does not clean or repair a device. Volume and trained-model findings are advisory in this build.</p></section>
+          <section><h3 className="font-semibold">6. Connection and Settings</h3><p>The indicator reports dashboard connectivity, not an agent heartbeat. Pending commands need agent acknowledgement. Use the gear beside the theme button for policy and protected-device settings. Mock results are simulations.</p></section>
+        </div>
+      </Modal>}
+      <TurtleParade />
       {USE_MOCK && (tab === "map" || tab === "overview") && <DemoControls />}
 
       {fixing && (
         <FixSheet
           issue={fixing}
           busy={busy}
+          audioEnabled={!muted}
           onClose={() => setFixing(null)}
           onAction={runFix}
           onDone={markDone}
@@ -360,13 +325,13 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
         />
       )}
 
-      {selectedDevice && <DeviceDetail device={selectedDevice} events={events} busy={busy} canAct={canAct} policy={policy} pending={commands[selectedDevice.mac]?.action || commands.all?.action} onClose={() => setSelected(null)} onAction={act} />}
+      {selectedDevice && <DeviceDetail audioEnabled={!muted} device={selectedDevice} events={events} busy={busy} canAct={canAct} policy={policy} pending={commands[selectedDevice.mac]?.action || commands.all?.action} onClose={() => setSelected(null)} onAction={act} />}
 
       <div
         className={`fixed left-1/2 top-20 z-50 -translate-x-1/2 transition-all duration-500 ${toast ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-3 opacity-0"}`}
         style={{ transitionTimingFunction: "var(--ease-apple)" }}
       >
-        <div className="rounded-full bg-ink/90 px-5 py-2.5 text-[14px] font-medium text-white shadow-[0_10px_30px_rgba(0,0,0,0.18)] backdrop-blur-xl">
+        <div className="rounded-full bg-ink/90 px-5 py-2.5 text-[18px] font-medium text-white shadow-[0_10px_30px_rgba(0,0,0,0.18)] backdrop-blur-xl">
           {toast}
         </div>
       </div>
@@ -392,16 +357,6 @@ function saveDone(ids: Set<string>) {
   }
 }
 
-function Stat({ label, value, color }: { label: string; value: number; color?: string }) {
-  const shown = useCountUp(value);
-  return (
-    <Card className="px-5 py-4">
-      <div className="text-[13px] font-medium text-ink-2">{label}</div>
-      <div className={`mt-1 text-[32px] font-semibold leading-none tracking-tight tabular-nums transition-colors duration-500 ${color ?? "text-ink"}`}>{shown}</div>
-    </Card>
-  );
-}
-
 /** Mock-only controls standing in for the phone and a cloud outage. */
 function DemoControls() {
   const [offline, setOffline] = useState(mockServer.isOffline());
@@ -410,8 +365,8 @@ function DemoControls() {
   usePoll(() => setRunning(mockServer.attackRunning()), 300);
 
   return (
-    <div className="fixed bottom-6 left-6 z-30 flex items-center gap-1.5 rounded-full bg-white/80 p-1.5 pl-4 shadow-[0_10px_40px_rgba(0,0,0,0.12)] ring-1 ring-hairline backdrop-blur-xl">
-      <span className="pr-1.5 text-[12px] font-semibold uppercase tracking-wide text-ink-3">Demo</span>
+    <div className="fixed bottom-16 left-6 z-30 flex items-center gap-1.5 rounded-full bg-white/80 p-1.5 pl-4 shadow-[0_10px_40px_rgba(0,0,0,0.12)] ring-1 ring-hairline backdrop-blur-xl">
+      <span className="pr-1.5 text-[16px] font-semibold uppercase tracking-wide text-ink-3">Demo</span>
       <Button
         variant="primary"
         className="h-8"

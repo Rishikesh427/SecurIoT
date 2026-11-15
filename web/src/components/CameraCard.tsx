@@ -43,10 +43,10 @@ export function CameraCard({ device, now }: { device: Device; now: number }) {
     <Card className="overflow-hidden">
       <div className="flex items-center justify-between px-5 pb-3 pt-4">
         <div>
-          <div className="text-[15px] font-medium text-ink">{device.label}</div>
-          <div className="text-[13px] text-ink-2">{hasFeed ? "Live feed" : "Camera status"}</div>
+          <div className="text-[19px] font-medium text-ink">{device.label}</div>
+          <div className="text-[17px] text-ink-2">{hasFeed ? "Live feed" : "Camera status"}</div>
         </div>
-        <span className={`inline-flex items-center gap-1.5 text-[12px] font-medium ${live ? "text-ok" : isolated ? "text-bad" : "text-ink-3"}`}>
+        <span className={`inline-flex items-center gap-1.5 text-[16px] font-medium ${live ? "text-ok" : isolated ? "text-bad" : "text-ink-3"}`}>
           <span className={`h-1.5 w-1.5 rounded-full ${live ? "animate-pulse bg-ok" : isolated ? "bg-bad" : "bg-ink-3"}`} />
           {live ? (hasFeed ? "Live" : "Online") : isolated ? "Isolated" : offline ? "Offline" : "Frozen"}
         </span>
@@ -57,10 +57,10 @@ export function CameraCard({ device, now }: { device: Device; now: number }) {
             isolated ? "bg-[#d9d9de]" : "bg-[#e8e8ed]"
           }`}
         >
-          <span key={title} className={`animate-fade-in text-[17px] font-semibold tracking-tight ${isolated ? "text-bad" : "text-ink-2"}`}>
+          <span key={title} className={`animate-fade-in text-[21px] font-semibold tracking-tight ${isolated ? "text-bad" : "text-ink-2"}`}>
             {title}
           </span>
-          <span key={subtitle} className="mt-1 animate-fade-in text-[13px] text-ink-3">
+          <span key={subtitle} className="mt-1 animate-fade-in text-[17px] text-ink-3">
             {subtitle}
           </span>
         </div>
