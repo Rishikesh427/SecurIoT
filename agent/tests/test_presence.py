@@ -101,6 +101,44 @@ def test_poll_taken_before_a_leave_event_does_not_undo_it():
         assert not camera.present
 
 
+def test_pump_drains_all_queued_packets_each_step():
+    # A burst must be processed together so it lands in one detection window,
+    # even after a slow cloud call stalled the loop.
+    from securiot_agent.live import LivePump
+    with tempfile.TemporaryDirectory() as directory:
+        agent, collector = build(ROOT / "agent/fixtures/devices.json", Path(directory), clock=DemoClock(1000))
+        pump = LivePump(agent, collector)
+        handled = []
+        pump.handle = handled.append
+        for i in range(250):
+            pump.packets.put_nowait(i)
+        pump.step(100.0, wait=0)
+        assert len(handled) == 250, "the whole burst is drained in one step, not one packet"
+
+
+def test_presence_change_does_not_force_upload_while_cloud_is_failing():
+    from securiot_agent.live import LivePump
+
+    class Cloud:
+        fail = True
+        def tick(self):
+            return ["timeout"] if self.fail else []
+
+    class Discovery:
+        def tick(self):
+            return True  # a device flapped
+
+    with tempfile.TemporaryDirectory() as directory:
+        agent, collector = build(ROOT / "agent/fixtures/devices.json", Path(directory), clock=DemoClock(1000))
+        cloud = Cloud()
+        pump = LivePump(agent, collector, cloud, discovery=Discovery())
+        pump.step(100.0, wait=0)   # first failure starts the backoff
+        assert pump.cloud_failures == 1 and pump.next_poll > 101
+        before = pump.next_poll
+        pump.step(100.1, wait=0)   # a flap must not drag the next upload back to now
+        assert pump.next_poll >= before
+
+
 def test_live_loop_uploads_immediately_when_presence_changes():
     from securiot_agent.live import LivePump
 
@@ -236,3 +274,22 @@ def test_packet_from_device_brings_it_back_immediately():
         assert not camera.present
         discovery.register(CAMERA, "10.42.0.20", None, "captured_source", seen=True)
         assert camera.present
+
+
+def test_sustained_scan_collapses_to_one_detection_event_per_window():
+    """A sweep is one observation per packet; the audit log must not get one event each."""
+    from securiot_agent.runtime import Agent
+    from securiot_agent.inventory import Inventory
+    from securiot_agent.detection import DemoDetector
+    from securiot_agent.enforcement import MockEnforcer
+    from securiot_agent.storage import Storage
+    from securiot_agent.models import Observation, Device
+    with tempfile.TemporaryDirectory() as d:
+        clock = DemoClock(1000)
+        dev = Device(CAMERA, "10.42.0.20", "cam", simulated=True)
+        agent = Agent(Inventory([dev]), DemoDetector(), MockEnforcer(), Storage(Path(d), "simulation"), clock=clock)
+        clock.advance(40)  # past warmup
+        obs = Observation(CAMERA, packet_arp_requests=40, arp_targets=tuple(f"10.42.0.{i}" for i in range(40, 90)))
+        events = [agent.observe(obs) for _ in range(30)]  # same situation, 30 packets, within one window
+        emitted = [e for e in events if e is not None]
+        assert len(emitted) <= 2, f"expected the scan collapsed to ~1 event, got {len(emitted)}"
