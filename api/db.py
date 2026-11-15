@@ -41,7 +41,7 @@ class Database:
             # A transaction-scoped lock serializes UUID checks across all API workers.
             # This avoids a second hypertable and enforces global UUID identity.
             conn.execute('SELECT pg_advisory_xact_lock(714281005)')
-            from api.telemetry zimport Event
+            from api.telemetry import Event
             # One lookup for the whole batch: per-event round trips made a full
             # batch take longer than the agent's request timeout, so it never
             # saw the acknowledgement and resent the same batch forever.
