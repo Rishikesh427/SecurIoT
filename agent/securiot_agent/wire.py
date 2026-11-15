@@ -16,8 +16,9 @@ def device_record(device, anomaly=0):
     persona = facts.get("persona", {})
     return {
         "mac": device.mac, "ip": device.ip, "name": device.name, "label": device.name,
-        "type": score["type"], "vendor": persona.get("vendor", facts.get("vendor")),
-        "ports": sorted(set(facts.get("ports", []))), "bytes_in": device.bytes_in,
+        "type": score["type"],
+        "vendor": persona.get("vendor", facts.get("vendor")) or (facts.get("inferred") or {}).get("vendor"),
+        "ports": sorted(set(facts.get("ports", [])) | set(facts.get("observed_ports", []))), "bytes_in": device.bytes_in,
         "bytes_out": device.bytes_out, "dests": device.dests,
         "last_seen": datetime.fromtimestamp(device.last_seen, timezone.utc).isoformat(),
         "snapshot_at": datetime.fromtimestamp(max(device.last_seen, device.snapshot_at or device.last_seen), timezone.utc).isoformat(),
@@ -26,7 +27,9 @@ def device_record(device, anomaly=0):
         "cloud_only": score.get("cloud_only"), "anomaly": round(min(1, max(0, anomaly)) * 40),
         "risk": score["risk"], "band": score["band"],
         "confidence": CONFIDENCE[score["confidence"]], "reasons": score["reasons"],
-        "status": {"blocked": "wan_blocked"}.get(device.status, device.status),
+        # A restriction always wins over presence: a quarantined device is expected to be gone.
+        "status": "offline" if device.status == "normal" and not device.present
+                  else {"blocked": "wan_blocked"}.get(device.status, device.status),
     }
 
 

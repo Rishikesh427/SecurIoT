@@ -19,7 +19,7 @@ export function DeviceAdvisor({ device, audioEnabled = true }: { device: Device;
   const inFlight = useRef(false);
   const advice = device.ai;
   const deviceType = !device.type || ['unknown', 'generic', 'iot', 'device'].includes(device.type.toLowerCase()) ? 'device' : device.type.toLowerCase();
-  const assessment = `This ${deviceType} is ${device.band} risk.`;
+  const assessment = `${device.risk}/100. This ${deviceType} is ${device.band} risk.`;
   const nextStep = advice?.next_step || "Review the reported device facts and available fixes.";
 
   async function ask(text: string) {
@@ -39,11 +39,11 @@ export function DeviceAdvisor({ device, audioEnabled = true }: { device: Device;
   }
 
   return <section aria-label="Device Score" className="space-y-3">
-    <h3 className="px-1 font-semibold">Score</h3>
+    <h3 className="px-1 text-[17px] font-normal tracking-wide text-ink-3">Score</h3>
     <Card className="space-y-5 px-5 py-4 leading-relaxed">
       <p>{assessment} <button type="button" onClick={() => setBreakdown(true)} className="italic underline underline-offset-4">Why?</button></p>
       <div className="flex items-start justify-between gap-3"><p><strong>Next Step:</strong> {nextStep}</p>
-        <ReadAloud text={`${assessment} Next step: ${nextStep}`} enabled={audioEnabled} label="Read Next Step" iconOnly />
+
       </div>
       {USE_MOCK && <p className="text-sm text-ink-3">Connect to the live API to ask the advisor.</p>}
       <form className="flex items-center gap-2" onSubmit={e => { e.preventDefault(); void ask(question); }}>

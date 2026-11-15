@@ -52,7 +52,7 @@ function authHeaders(): Record<string, string> {
 let policyETag: string | null = null;
 
 async function http<T>(path: string, init: RequestInit = {}, base = API_BASE): Promise<T> {
-  const timeoutMs = path === "/audit/run" ? 30000 : 15000;
+  const timeoutMs = path === "/audit/run" || path === "/actions" ? 35000 : 15000;
   try {
     const res = await fetch(`${base}${path}`, {
       ...init, signal: init.signal ?? AbortSignal.timeout(timeoutMs), cache: "no-store",
@@ -87,6 +87,7 @@ async function routeExists(path: string): Promise<boolean> {
 }
 
 export const api = {
+  signup: (username: string, password: string, invite_code: string) => USE_MOCK ? mockServer.login(username, password) : http<TokenResponse>("/auth/signup", { method: "POST", body: JSON.stringify({ username, password, invite_code }) }),
   login: (username: string, password: string) =>
     USE_MOCK
       ? mockServer.login(username, password)

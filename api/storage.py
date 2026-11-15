@@ -76,6 +76,15 @@ class MemoryDatabase:
         with self.lock:
             return copy.deepcopy(self.users.get(str(user_id)))
 
+    def create_user(self, username, password_hash):
+        with self.lock:
+            if any(user['username'] == username for user in self.users.values()):
+                raise HTTPException(409, 'Username is already in use')
+            user = {'id': uuid4(), 'username': username, 'password_hash': password_hash,
+                    'role': 'judge', 'active': True}
+            self.users[str(user['id'])] = user
+            return copy.deepcopy(user)
+
     def _rows(self, table):
         # Internal constant table names only.
         return [json.loads(row[0]) for row in self.conn.execute(f'SELECT payload FROM {table}')]
@@ -181,8 +190,8 @@ class MemoryDatabase:
 
 
 class Storage:
-    METHODS = {'audit','ready','user_by_name','user_by_id','ingest','sync','ack','devices','events','get_policy','put_policy','create_command'}
-    WRITES = {'ingest','ack','put_policy','create_command'}
+    METHODS = {'audit','ready','user_by_name','user_by_id','create_user','ingest','sync','ack','devices','events','get_policy','put_policy','create_command'}
+    WRITES = {'create_user','ingest','ack','put_policy','create_command'}
 
     def __init__(self, primary, settings):
         self.primary = primary
@@ -194,11 +203,14 @@ class Storage:
         self.last_policy = None
 
     def status(self):
-        with self.lock:
-            return {'mode':'memory' if self.using_memory else 'postgres',
-                    'demo_storage':self.using_memory, 'persistent':not self.using_memory,
-                    'badge':'Demo storage' if self.using_memory else 'Tiger Data',
-                    'reason':self.reason, 'recovery':'restart' if self.using_memory else None}
+        # No lock: the response middleware calls this on the event loop for every
+        # request, and waiting here behind a slow database call stalled the whole
+        # server (even /healthz). Reading the current flags is safe without it.
+        memory, reason = self.using_memory, self.reason
+        return {'mode':'memory' if memory else 'postgres',
+                'demo_storage':memory, 'persistent':not memory,
+                'badge':'Demo storage' if memory else 'Tiger Data',
+                'reason':reason, 'recovery':'restart' if memory else None}
 
     def close(self):
         self.memory.close()

@@ -35,22 +35,43 @@ class Database:
         with self.connect() as conn:
             return conn.execute("SELECT id, username, role, active FROM users WHERE id = %s", (user_id,)).fetchone()
 
+    def create_user(self, username, password_hash):
+        from uuid import uuid4
+        try:
+            with self.connect() as conn:
+                return conn.execute("INSERT INTO users(id,username,password_hash,role,active) VALUES (%s,%s,%s,'judge',true) RETURNING id,username,role,active",
+                                    (uuid4(), username, password_hash)).fetchone()
+        except psycopg.errors.UniqueViolation:
+            raise HTTPException(409, 'Username is already in use') from None
+
     def ingest(self, batch):
         counts = {'accepted_devices': 0, 'accepted_events': 0}
         with self.connect() as conn:
             # A transaction-scoped lock serializes UUID checks across all API workers.
             # This avoids a second hypertable and enforces global UUID identity.
             conn.execute('SELECT pg_advisory_xact_lock(714281005)')
+            from api.telemetry import Event
+            # One lookup for the whole batch: per-event round trips made a full
+            # batch take longer than the agent's request timeout, so it never
+            # saw the acknowledgement and resent the same batch forever.
+            ids = [event.id for event in batch.events]
+            known = {row['id']: Event.model_validate(row) for row in
+                     conn.execute('SELECT * FROM events WHERE id = ANY(%s)', (ids,))} if ids else {}
+            fresh = []
             for event in batch.events:
-                existing = conn.execute('SELECT * FROM events WHERE id = %s', (event.id,)).fetchone()
-                data = event.model_dump(mode='json')
-                if existing:
-                    from api.telemetry import Event
-                    if Event.model_validate(existing) != event:
+                if event.id in known:
+                    if known[event.id] != event:
                         raise HTTPException(409, 'Event UUID already exists with different content')
                     continue
-                self._insert(conn, 'events', data)
-                counts['accepted_events'] += 1
+                known[event.id] = event  # a repeat later in this batch is compared, not reinserted
+                fresh.append(event.model_dump(mode='json'))
+            for columns in {tuple(data) for data in fresh}:
+                rows = [[Jsonb(v) if isinstance(v, (dict, list)) else v for v in data.values()] for data in fresh if tuple(data) == columns]
+                with conn.cursor() as cursor:
+                    cursor.executemany(sql.SQL('INSERT INTO events ({}) VALUES ({})').format(
+                        sql.SQL(',').join(map(sql.Identifier, columns)),
+                        sql.SQL(',').join(sql.Placeholder() for _ in columns)), rows)
+            counts['accepted_events'] = len(fresh)
             for device in sorted(batch.devices, key=lambda d: d.mac):
                 data = device.model_dump(mode='json')
                 columns = list(data)
@@ -104,7 +125,11 @@ class Database:
     def devices(self):
         from api.telemetry import Device
         with self.connect() as conn:
-            return [Device.model_validate(row).model_dump(mode='json') for row in conn.execute('SELECT * FROM devices ORDER BY mac')]
+            # Name the contract's columns: a shared database can gain columns from
+            # a teammate's newer migration, and SELECT * would then fail validation.
+            columns = sql.SQL(',').join(map(sql.Identifier, Device.model_fields))
+            return [Device.model_validate(row).model_dump(mode='json')
+                    for row in conn.execute(sql.SQL('SELECT {} FROM devices ORDER BY mac').format(columns))]
 
     def events(self, limit, offset):
         from api.telemetry import Event

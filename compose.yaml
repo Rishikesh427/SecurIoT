@@ -13,6 +13,7 @@ services:
     environment:
       APP_ENV: development
       ROOT_PATH: /api
+      SECURIOT_ROUTER_URL: ${SECURIOT_ROUTER_URL:-}
     volumes:
       - ./api:/app/api
       - ./ml/securiot_ml:/app/ml/securiot_ml:ro
@@ -30,6 +31,8 @@ services:
     security_opt:
       - no-new-privileges:true
   web:
+    # Refresh the persistent dependency volume when the checkout's lockfile changes.
+    command: ["sh", "-c", "npm ci --no-audit --no-fund && exec npm run dev -- --host 0.0.0.0"]
     environment:
       VITE_PROXY_TARGET: http://api:8000
     build:

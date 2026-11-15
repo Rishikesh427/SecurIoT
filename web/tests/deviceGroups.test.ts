@@ -23,6 +23,15 @@ it("classifies contained and critically flagged devices as danger", () => {
   expect(deviceGroups(devices, [{ mac: "two", severity: "critical" }] as Issue[])).toEqual({ safe: 0, caution: 0, danger: 2 });
 });
 
+it("leaves disconnected devices out of the counts but keeps restricted ones", () => {
+  const devices = [
+    { mac: "gone", band: "high", status: "offline" },
+    { mac: "held", band: "low", status: "quarantined" },
+    { mac: "here", band: "low", status: "normal" },
+  ] as DashDevice[];
+  expect(deviceGroups(devices, [{ mac: "gone", severity: "critical" }] as Issue[])).toEqual({ safe: 1, caution: 0, danger: 1 });
+});
+
 it("uses distinct device issues instead of risk points or system notices", async () => {
   const { deviceIssueCounts } = await import('../src/lib/deviceGroups');
   const devices = [{ mac: 'camera', risk: 75 }] as DashDevice[];

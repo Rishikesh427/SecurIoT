@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, USE_MOCK, api, getToken, isMissing, setToken } from "./api/client";
-import { TurtleParade } from "./components/TurtleParade";
+import { TurtleParade, TurtleCompanion } from "./components/TurtleParade";
 import { ActivityExplorer } from "./components/ActivityExplorer";
 import { Modal } from "./components/Modal";
-import { CircleHelp } from "lucide-react";
+import { Landing } from "./components/Landing";
 import { deviceGroups, deviceIssueCounts } from "./lib/deviceGroups";
 import { ActivityView } from "./components/ActivityView";
 import { DeviceDetail } from "./components/DeviceDetail";
 import { Login } from "./components/Login";
 import { HomeMap } from "./components/HomeMap";
+import { OlderDevices } from "./components/OlderDevices";
 import { Heatmap } from "./components/Heatmap";
 import { SettingsToggle, SoundToggle, ThemeToggle, useTheme } from "./components/ThemeToggle";
 import { Logo } from "./components/Logo";
@@ -30,7 +31,8 @@ type Tab = "map" | "heatmap" | "overview";
 
 export default function App() {
   const [authed, setAuthed] = useState(() => !!getToken());
-  if (!authed) return <Login onLogin={() => setAuthed(true)} />;
+  const [entry, setEntry] = useState(false);
+  if (!authed) return entry ? <Login onLogin={() => setAuthed(true)} onBack={() => setEntry(false)} /> : <Landing onEnter={() => setEntry(true)} />;
   return (
     <Dashboard
       onLogout={() => {
@@ -164,6 +166,11 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
     requestBusy.current = true; setBusy(true);
     try {
       const command = await api.action(action === "restore_all" ? { action } : { action, mac });
+      if (command.status === "applied" || command.status === "failed") {
+        await refresh();
+        flash(command.status === "applied" ? "Action completed. Result recorded in the audit log." : command.detail || "Action failed. Check the audit log.");
+        return;
+      }
       setCommands(previous => ({...previous, [mac || "all"]: {id: command.id, action}}));
       await refresh();
       const name = shortLabel(devices.find((d) => d.mac === mac)?.label ?? "");
@@ -267,7 +274,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
             <button key={item.value} aria-current={tab === item.value ? "page" : undefined} onClick={() => setTab(item.value)}
               className={`w-full rounded-xl px-3 py-3 text-left text-sm font-medium transition-all ${tab === item.value ? "bg-ink text-white" : "text-ink-2 hover:bg-fill"}`}>{item.label}</button>)}
         </nav>
-        <main className="min-w-0 flex-1 px-4 pb-32 pt-8 sm:px-8">
+        <main className="min-w-0 flex-1 px-4 pb-8 pt-8 sm:px-8">
           <div className="mx-auto max-w-[1200px] space-y-5">
             {offline && <div role="alert" className="rounded-xl border border-hairline bg-fill p-4 text-sm">
               Dashboard updates unavailable. {connectionError} Last received data is retained. Agent connectivity cannot be determined from this error.
@@ -282,11 +289,12 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
                   onClick={() => void setArmed(!armed).catch(() => undefined)}
                   title="Updates the response policy. Real containment also requires the agent's local arm permission. Scanning means inventory refresh, not a vulnerability scan."
                   className={`rounded-full px-5 py-2 text-sm font-medium transition-all ${scanning ? "bg-gray-200 text-gray-500" : "bg-black text-white"} disabled:cursor-wait`}>{armingBusy ? "Saving…" : armLabel}</button>
-                <button type="button" aria-label="Open tutorial" onClick={() => setTutorialOpen(true)} className="grid h-9 w-9 place-items-center rounded-full text-ink transition-transform hover:rotate-12 hover:bg-fill"><CircleHelp size={20} /></button>
+                <button type="button" aria-label="Open tutorial" onClick={() => setTutorialOpen(true)} className="flex h-11 items-center rounded-full text-ink transition-transform hover:rotate-12 hover:bg-fill"><TurtleCompanion /><span className="sr-only">Help</span></button>
               </>} /></div>}
             {tab === "heatmap" && <div className="animate-rise-in space-y-10">
               <Heatmap devices={devices} events={events} now={now} />
               <section><ActivityExplorer events={events} devices={devices} onSelect={setSelected} /></section>
+              <OlderDevices devices={devices} now={now} onSelect={setSelected} />
               <ActivityView devices={devices} entries={audit} onAction={act} canAct={canAct && !offline} canRunAudit={canRunAudit && !offline} />
             </div>}
             {tab === "overview" && <div className="animate-rise-in space-y-6"><h1 className="t-head">Prevention</h1><AttentionList issues={issues} onFix={setFixing} /></div>}
@@ -299,6 +307,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
       </Modal>}
       {tutorialOpen && <Modal title="CasaWarden tutorial" onClose={() => setTutorialOpen(false)}>
         <div className="space-y-6 text-sm leading-relaxed">
+          <div className="flex items-center gap-3"><TurtleCompanion variant={1} /><p>A little guidance for a safer home network.</p></div>
           <section><h3 className="font-semibold">1. Home and Devices</h3><p>Tap a device to see its reported facts, traffic, alerts and AI advisor. Safe, Caution and Danger count devices once each. Unknown facts do not establish safety.</p></section>
           <section><h3 className="font-semibold">2. Scanning and Arming</h3><p>Scanning shows while inventory is connecting or a new device arrives. Ready to Arm appears after a stable inventory refresh. Click it to request an armed policy. The agent also needs local arm permission; this button cannot confirm physical enforcement.</p><p>If a device joins while armed, protection stays enabled while the inventory refreshes. Routine monitoring continues in the background. Click Armed to return the policy to learning mode.</p></section>
           <section><h3 className="font-semibold">3. Activity and Audit</h3><p>Activity shows the heatmap and recent recorded events. Open an event for evidence and the recorded safety-gate decision. Run audit for a digest; open the audit log to inspect requested, applied, failed and simulated outcomes.</p></section>
@@ -308,7 +317,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
         </div>
       </Modal>}
       <TurtleParade />
-      {USE_MOCK && (tab === "map" || tab === "overview") && <DemoControls />}
+      {USE_MOCK && <DemoControls />}
 
       {fixing && (
         <FixSheet
@@ -362,10 +371,11 @@ function DemoControls() {
   const [offline, setOffline] = useState(mockServer.isOffline());
   const [running, setRunning] = useState(false);
   const [joined, setJoined] = useState(mockServer.guestJoined());
+  const [away, setAway] = useState(mockServer.deviceAway());
   usePoll(() => setRunning(mockServer.attackRunning()), 300);
 
   return (
-    <div className="fixed bottom-16 left-6 z-30 flex items-center gap-1.5 rounded-full bg-white/80 p-1.5 pl-4 shadow-[0_10px_40px_rgba(0,0,0,0.12)] ring-1 ring-hairline backdrop-blur-xl">
+    <div className="fixed bottom-16 left-6 z-30 flex max-w-[calc(100vw-48px)] items-center gap-1.5 overflow-x-auto whitespace-nowrap rounded-full [&>*]:shrink-0 bg-white/80 p-1.5 pl-4 shadow-[0_10px_40px_rgba(0,0,0,0.12)] ring-1 ring-hairline backdrop-blur-xl">
       <span className="pr-1.5 text-[16px] font-semibold uppercase tracking-wide text-ink-3">Demo</span>
       <Button
         variant="primary"
@@ -388,6 +398,15 @@ function DemoControls() {
         }}
       >
         Device joins
+      </Button>
+      <Button
+        className="h-8"
+        onClick={() => {
+          mockServer.toggleDeviceAway();
+          setAway(mockServer.deviceAway());
+        }}
+      >
+        {away ? "Device returns" : "Device leaves"}
       </Button>
       <Button
         className="h-8"

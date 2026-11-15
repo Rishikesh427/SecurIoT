@@ -148,7 +148,7 @@ export function ActivityExplorer({
         <button
           type="button"
           onClick={reset}
-          className="mt-3 text-sm font-medium underline"
+          className="ml-auto mt-3 block text-sm font-medium underline"
         >
           Reset
         </button>

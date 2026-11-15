@@ -1,5 +1,5 @@
 # Run from the repository root: python -m pip install -r agent/requirements-test.txt
 -r ../api/requirements-dev.txt
 -e ./ml
--e ./agent[cloud,replay]
+-e ./agent[cloud,replay,discovery]
 -r ../ml/requirements-model.txt
