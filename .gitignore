@@ -17,8 +17,3 @@ node_modules/
 ml/data/raw/
 ml/.venv/
 .venv/
-
-# Internal demo deploy launcher (shared privately, never committed)
-safe_deploy.sh
-safe_deploy.internal.md
-.safe-deploy/
