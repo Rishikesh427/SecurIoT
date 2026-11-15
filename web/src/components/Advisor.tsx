@@ -40,7 +40,7 @@ export function DeviceAdvisor({ device, audioEnabled = true }: { device: Device;
   }
 
   return <section aria-label="Device Assessment" className="space-y-3">
-    <h3 className="px-1 font-semibold">Score</h3>
+    <h3 className="px-1 text-[17px] font-semibold tracking-wide text-ink-3">Score</h3>
     <Card className="space-y-5 px-5 py-4 leading-relaxed">
       <strong className="block text-[40px] tabular-nums" aria-label="Device Score">{100-device.risk}</strong>
       <p>{assessment} <button type="button" onClick={() => setBreakdown(true)} className="italic underline underline-offset-4">Why?</button></p>

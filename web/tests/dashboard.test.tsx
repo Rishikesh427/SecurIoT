@@ -24,7 +24,7 @@ afterEach(cleanup);
 
 it('queues quarantine, preserves reported status, waits for ack and enables restore', async () => {
   render(<App />);
-  fireEvent.click(await screen.findByRole('button',{name:/Demo Pi/}));
+  fireEvent.click(await screen.findByRole('button',{name:'Demo Pi'}));
   fireEvent.click(await screen.findByRole('button',{name:'Quarantine'}));
   await waitFor(()=>expect(api.action).toHaveBeenCalledWith({action:'quarantine',mac}));
   expect((screen.getByRole('button',{name:'Quarantine'}) as HTMLButtonElement).disabled).toBe(true);
@@ -38,7 +38,7 @@ it('queues quarantine, preserves reported status, waits for ack and enables rest
 
 it('surfaces failed acknowledgement and allows another recovery request', async () => {
   render(<App />);
-  fireEvent.click(await screen.findByRole('button',{name:/Demo Pi/}));
+  fireEvent.click(await screen.findByRole('button',{name:'Demo Pi'}));
   fireEvent.click(screen.getByRole('button',{name:'Quarantine'}));
   await waitFor(()=>expect(api.action).toHaveBeenCalled());
   rows=[{id:'audit-1',command_id:'command-1',ts:new Date().toISOString(),actor:'judge',action:'quarantine',mac,outcome:'failed'}];
@@ -56,7 +56,7 @@ it('keeps three left navigation pages and opens settings/tutorial as dialogs', a
   fireEvent.click(screen.getByRole('button',{name:'Open tutorial'}));
   expect(screen.getByRole('dialog',{name:'CasaWarden Tutorial'})).toBeTruthy();
   fireEvent.click(screen.getByRole('button',{name:'Close CasaWarden Tutorial'}));
-  await screen.findByRole('button',{name:/Demo Pi/});
+  await screen.findByRole('button',{name:'Demo Pi'});
   fireEvent.click(screen.getByRole('button',{name:'Settings',exact:true}));
   expect(screen.getByRole('dialog',{name:'Settings'})).toBeTruthy();
   fireEvent.click(screen.getByRole('button',{name:'Close Settings'}));
@@ -66,31 +66,26 @@ it('keeps three left navigation pages and opens settings/tutorial as dialogs', a
 it('retains loaded devices when the optional event route times out', async () => {
   api.events.mockRejectedValue(new Error('Activity request timed out'));
   render(<App />);
-  expect(await screen.findByRole('button',{name:/Demo Pi/})).toBeTruthy();
+  expect(await screen.findByRole('button',{name:'Demo Pi'})).toBeTruthy();
   expect(screen.queryByText(/Dashboard updates unavailable/)).toBeNull();
   expect(screen.getByText(/Activity request timed out/)).toBeTruthy();
 });
 
-it('requests arming after inventory loads and preserves it during a new-device scan', async () => {
-  let current = {...policy, learning_mode:true};
-  api.policy.mockImplementation(async()=>current);
-  api.savePolicy.mockImplementation(async (value:Policy)=>{ current=value; return value; });
-  render(<App />);
-  expect(screen.getByRole('switch',{name:'Scanning'})).toBeTruthy();
-  const ready = await screen.findByRole('switch',{name:'Ready to Arm'}, {timeout:3500});
-  fireEvent.click(ready);
-  await screen.findByRole('switch',{name:'Armed'});
-  expect(api.savePolicy).toHaveBeenCalledWith(expect.objectContaining({learning_mode:false}));
-  api.devices.mockResolvedValue([device,{...device,mac:'02:00:00:00:00:21',label:'Guest phone'}]);
-  await screen.findByRole('switch',{name:'Scanning'}, {timeout:3500});
-  expect(current.learning_mode).toBe(false);
-  await screen.findByRole('switch',{name:'Armed'}, {timeout:3500});
-  expect(api.savePolicy).toHaveBeenCalledTimes(1);
-}, 10000);
+it('removes the Home arm switch while keeping protection controls in Settings', async () => {
+  api.policy.mockResolvedValue({...policy,learning_mode:true});
+  render(<App/>);
+  await screen.findByRole('button',{name:'Demo Pi'});
+  expect(screen.queryByRole('switch')).toBeNull();
+  expect(screen.getByRole('button',{name:'Open tutorial'})).toBeTruthy();
+  fireEvent.click(screen.getByRole('button',{name:'Settings',exact:true}));
+  fireEvent.click(await screen.findByRole('switch',{name:'Automatic protection'}));
+  fireEvent.click(screen.getByRole('button',{name:'Save',exact:true}));
+  await waitFor(()=>expect(api.savePolicy).toHaveBeenCalledWith(expect.objectContaining({learning_mode:false})));
+});
 
 it('shows heatmap, recent activity and digest on Activity with a dismissible audit log', async () => {
   render(<App />);
-  await screen.findByRole('button',{name:/Demo Pi/});
+  await screen.findByRole('button',{name:'Demo Pi'});
   fireEvent.click(screen.getByRole('button',{name:'Activity',exact:true}));
   expect(screen.getByRole('heading',{name:'Activity',exact:true})).toBeTruthy();
   expect(screen.getByRole('heading',{name:'Recent Activity'})).toBeTruthy();
@@ -110,4 +105,13 @@ it('uses one live snapshot instead of separately polling devices, activity, audi
   expect(api.events).not.toHaveBeenCalled();
   expect(api.audit).not.toHaveBeenCalled();
   expect(api.policy).not.toHaveBeenCalled();
+});
+
+it('opens the landing page from the logo and returns without signing out', async () => {
+  render(<App/>);
+  fireEvent.click(await screen.findByRole('button',{name:'CasaWarden Landing Page'}));
+  expect(screen.getByRole('heading',{name:/Security for the devices/})).toBeTruthy();
+  expect(screen.queryByRole('navigation',{name:'Main navigation'})).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'Open Dashboard'}));
+  expect(await screen.findByRole('navigation',{name:'Main navigation'})).toBeTruthy();
 });

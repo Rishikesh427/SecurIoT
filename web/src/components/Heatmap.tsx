@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import gsap from "gsap";
 import { Lock, TriangleAlert } from "lucide-react";
 import { Segmented } from "./ui";
-import { shortLabel, toMs } from "../lib/format";
+import { toMs } from "../lib/format";
 import type { DashDevice, SecurEvent } from "../types";
 
 const SIZE = { "1m": 60_000, "5m": 300_000, "1h": 3_600_000 };
@@ -50,23 +50,23 @@ export function Heatmap({ devices, events, now }: { devices: DashDevice[]; event
     return () => ctx.revert();
   }, [size, devices.length, hot]);
 
-  const unit = { "1m": "minute", "5m": "5 minutes", "1h": "hour" }[size];
+  const unit = { "1m": "one minute", "5m": "five minutes", "1h": "one hour" }[size];
   return (
     <div ref={root} className="space-y-4">
       <div className="flex items-center justify-between gap-4">
         <h1 className="t-head">Activity</h1>
         <Segmented<Size> value={size} onChange={setSize} options={[{ value: "1m", label: "1 min" }, { value: "5m", label: "5 min" }, { value: "1h", label: "1 hour" }]} />
       </div>
-      <p className="t-body text-ink-2">Each square is one {unit}, oldest on the left and the latest on the right. Darker orange means a more serious warning; red means the device was quarantined. Hover a square for its exact time.</p>
+      <p className="t-body text-ink-2">Each square is {unit}.</p>
       <div className="overflow-x-auto"><div className="min-w-[560px] space-y-2">
         {rows.map(({ d, cells }) => (
           <div key={d.mac} className="flex items-center gap-3">
-            <span className="t-sub w-32 shrink-0 truncate">{shortLabel(d.label)}</span>
+            <span className="t-sub w-40 shrink-0 break-words">{d.label || d.name}</span>
             <div className="grid flex-1 gap-1" style={{ gridTemplateColumns: `repeat(${COLS}, 1fr)` }}>
               {cells.map((c, i) => (
                 <div key={i} data-cell data-lvl={c.lvl} role="img"
                   title={`${clockTime(columnStart(now, size, i), size)}–${i === COLS - 1 ? "now" : clockTime(columnStart(now, size, i + 1), size)} · ${NAME[c.lvl]}${c.n ? ` · ${c.n} event${c.n > 1 ? "s" : ""}` : ""}`}
-                  aria-label={`${shortLabel(d.label)}, ${NAME[c.lvl]}`}
+                  aria-label={`${d.label || d.name}, ${NAME[c.lvl]}`}
                   className="grid h-9 place-items-center rounded-md"
                   style={{ background: `var(--heat-${c.lvl})`, color: `var(--heat-ink-${c.lvl || 1})` }}>
                   {c.lvl === 3 ? <Lock size={15} /> : c.lvl > 0 ? <TriangleAlert size={15} /> : null}
@@ -78,7 +78,7 @@ export function Heatmap({ devices, events, now }: { devices: DashDevice[]; event
         {rows.length > 0 && <>
           {/* Time axis, lined up with the columns: when each block starts, ending at Now. */}
           <div className="flex items-start gap-3" aria-label="Time axis">
-            <span className="w-32 shrink-0" />
+            <span className="w-40 shrink-0" />
             <div className="grid flex-1 gap-1" style={{ gridTemplateColumns: `repeat(${COLS}, 1fr)` }}>
               {Array.from({ length: COLS }, (_, i) => (
                 <span key={i} className={`t-cap t-mono whitespace-nowrap text-center ${i === COLS - 1 ? "font-semibold text-ink" : "text-ink-3"}`}>
@@ -87,7 +87,7 @@ export function Heatmap({ devices, events, now }: { devices: DashDevice[]; event
               ))}
             </div>
           </div>
-          <div className="t-cap flex justify-between pl-[140px] text-ink-3"><span>← Older</span><span>Newer →</span></div>
+          <div className="t-cap flex justify-between pl-[172px] text-ink-3"><span>← Older</span><span>Newer →</span></div>
         </>}
       </div></div>
       {!rows.length && <p className="t-body text-ink-2">No devices reported yet.</p>}

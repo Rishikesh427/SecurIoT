@@ -12,12 +12,14 @@ it('displays the complement of risk without changing the stored risk',()=>{
   expect(screen.getByLabelText('Device Score').textContent).toBe('25');
   expect(device.risk).toBe(75);
 });
-it('caps activity at ten rows and expands full names independently',()=>{
+it('caps activity at five rows, reveals five more, and shows full names without name buttons',()=>{
   const events=Array.from({length:11},(_,i)=>({id:String(i),mac:'m',ts:new Date().toISOString(),kind:'new_device',evidence:{},actions_taken:[],would_have:[],source:'agent'})) as SecurEvent[];
   render(<ActivityList devices={[device]} events={events} onSelect={vi.fn()}/>);
-  expect(screen.getAllByRole('button',{name:'Show Full Device Name'})).toHaveLength(10);
-  fireEvent.click(screen.getAllByRole('button',{name:'Show Full Device Name'})[0]);
-  expect(screen.getByRole('button',{name:'Collapse Full Device Name'}).getAttribute('aria-expanded')).toBe('true');
+  expect(screen.getAllByText(device.label)).toHaveLength(5);
+  expect(screen.queryByRole('button',{name:'Show Full Device Name'})).toBeNull();
+  expect(screen.queryByText('No action recorded')).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'Show More'}));
+  expect(screen.getAllByText(device.label)).toHaveLength(10);
   fireEvent.click(screen.getByRole('button',{name:'Show More'}));
   expect(screen.getAllByText(device.label)).toHaveLength(11);
   expect(screen.queryByRole('button',{name:'Show More'})).toBeNull();

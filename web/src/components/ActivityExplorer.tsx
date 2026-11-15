@@ -145,13 +145,13 @@ export function ActivityExplorer({
           </label>
         </div>
 
-        <button
+        <div className="flex justify-end"><button
           type="button"
           onClick={reset}
           className="mt-3 text-sm font-medium underline"
         >
           Reset
-        </button>
+        </button></div>
       </fieldset>}
 
       {filtered.length === 0 ? (

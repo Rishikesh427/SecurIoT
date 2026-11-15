@@ -7,6 +7,7 @@ import { Modal } from "./components/Modal";
 import { deviceGroups, deviceIssueCounts } from "./lib/deviceGroups";
 import { ActivityView } from "./components/ActivityView";
 import { DeviceDetail } from "./components/DeviceDetail";
+import { Landing } from "./components/Landing";
 import { Login } from "./components/Login";
 import { HomeMap } from "./components/HomeMap";
 import { OlderDevices } from "./components/OlderDevices";
@@ -31,18 +32,21 @@ type Tab = "map" | "heatmap" | "overview";
 
 export default function App() {
   const [authed, setAuthed] = useState(() => !!getToken());
-  if (!authed) return <Login onLogin={() => setAuthed(true)} />;
+  const [landing, setLanding] = useState(false);
+  if (landing) return <Landing authenticated={authed} onEnter={() => setLanding(false)} />;
+  if (!authed) return <Login onHome={() => setLanding(true)} onLogin={() => setAuthed(true)} />;
   return (
-    <Dashboard
+    <Dashboard onHome={() => setLanding(true)}
       onLogout={() => {
         setToken(null);
         setAuthed(false);
+        setLanding(true);
       }}
     />
   );
 }
 
-function Dashboard({ onLogout }: { onLogout: () => void }) {
+function Dashboard({ onLogout, onHome }: { onLogout: () => void; onHome: () => void }) {
   const [tab, setTab] = useState<Tab>("map");
   const [rawDevices, setRawDevices] = useState<Device[]>([]);
   const [events, setEvents] = useState<SecurEvent[]>([]);
@@ -59,8 +63,6 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [armingBusy, setArmingBusy] = useState(false);
-  const [lastDiscoveryAt, setLastDiscoveryAt] = useState<number | null>(null);
-  const knownMacs = useRef<Set<string> | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -107,8 +109,6 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
       const reason = (error: unknown) => error instanceof Error ? error.message : "Request failed";
       if (deviceResult.status === "fulfilled") {
         const next = deviceResult.value;
-        if (knownMacs.current === null || next.some((device) => !knownMacs.current!.has(device.mac))) setLastDiscoveryAt(Date.now());
-        knownMacs.current = new Set(next.map((device) => device.mac));
         setRawDevices(next); setLoaded(true); setOffline(false); setConnectionError(null);
       } else {
         setOffline(true); setConnectionError(reason(deviceResult.reason));
@@ -232,9 +232,6 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   const issues = deriveIssues(devices, events, policy, { now, canAct }).filter((i) => !doneIds.has(i.id));
   const groups = deviceGroups(devices, issues);
   const issueCounts = deviceIssueCounts(devices, issues);
-  // Inventory refresh state, not a claim that a port scan or agent arm completed.
-  const scanning = !loaded || offline || devices.length === 0 || lastDiscoveryAt === null || now - lastDiscoveryAt < 2000;
-  const armLabel = scanning ? "Scanning" : armed ? "Armed" : "Ready to Arm";
 
   function markDone(issue: Issue) {
     const next = new Set([...doneIds, issue.id]);
@@ -260,7 +257,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
     <div className="min-h-screen bg-white text-ink">
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-xl">
         <div className="flex h-16 items-center justify-between gap-2 px-3 sm:px-6">
-          <div className="flex items-center gap-2"><Logo size={28} /><span className="hidden text-lg font-semibold sm:inline">CasaWarden</span></div>
+          <button type="button" aria-label="CasaWarden Landing Page" onClick={onHome} className="flex items-center gap-2 rounded-lg"><Logo size={28} /><span className="hidden text-lg font-semibold sm:inline">CasaWarden</span></button>
           <div className="flex flex-wrap items-center gap-1">
             {isolated.length > 0 && canAct && <Button onClick={() => act("restore_all")} disabled={busy || offline} className="h-8">Restore all</Button>}
             <div className="hidden lg:block"><StorageBadge /></div>
@@ -285,15 +282,10 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
             {agentConnected === false && <p role="status" className="text-sm text-ink-3">Pi agent not connected. Check its service logs and API URL; access changes require the running Linux agent.</p>}
             {warnings.length > 0 && <div role="alert" className="rounded-xl border border-hairline p-3 text-xs text-ink-2">{warnings.join(" · ")}</div>}
             {Object.keys(commands).length > 0 && <p className="text-xs text-ink-3">{Object.keys(commands).length} command(s) awaiting agent acknowledgement. Check the audit log for results.</p>}
-            {tab === "map" && <div className="animate-rise-in"><HomeMap devices={devices} rates={rates} groups={groups} issueCounts={issueCounts} theme={theme} onSelect={setSelected} bandwidth={<Bandwidth traffic={traffic}/>}
+            {tab === "map" && <div className="animate-rise-in"><HomeMap devices={devices} rates={rates} groups={groups} issueCounts={issueCounts} theme={theme} onSelect={setSelected} bandwidth={<Bandwidth traffic={traffic} devices={devices}/>}
               status={<p className="flex items-center gap-2 text-xs text-ink-3"><span className={`h-2 w-2 rounded-full ${offline ? "bg-bad" : loaded ? "bg-ok" : "bg-gray-400"}`} />{offline ? "Updates unavailable" : loaded ? "Dashboard connected" : "Connecting"}{armed ? " · System engaged" : " · Learning mode"}</p>}
               controls={<>
-                <button type="button" role="switch" aria-checked={armed} aria-label={armLabel}
-                  disabled={scanning || !policy || !policyFresh || armingBusy}
-                  onClick={() => void setArmed(!armed).catch(() => undefined)}
-                  title="Updates the response policy. Real containment also requires the agent's local arm permission. Scanning means inventory refresh, not a vulnerability scan."
-                  className={`arm-control rounded-full px-5 py-2 text-sm font-medium transition-all ${scanning ? "bg-gray-200 text-gray-500" : ""} disabled:cursor-wait`} data-scanning={scanning}>{armingBusy ? "Saving…" : armLabel}</button>
-                <button type="button" aria-label="Open tutorial" onClick={() => setTutorialOpen(true)} className="grid h-9 w-9 place-items-center rounded-full text-ink transition-transform hover:rotate-12 hover:bg-fill"><TurtleHelpIcon/></button>
+                <button type="button" aria-label="Open tutorial" onClick={() => setTutorialOpen(true)} className="grid h-16 w-20 place-items-center rounded-full text-ink transition-transform hover:rotate-12 hover:bg-fill"><TurtleHelpIcon/></button>
               </>} /></div>}
             {tab === "heatmap" && <div className="animate-rise-in space-y-10">
               <Heatmap devices={devices} events={events} now={now} />
@@ -312,7 +304,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
       {tutorialOpen && <Modal title="CasaWarden tutorial" onClose={() => setTutorialOpen(false)}>
         <div className="space-y-6 text-sm leading-relaxed">
           <section><h3 className="font-semibold">1. Home and Devices</h3><p>Tap a device to see its reported facts, traffic, alerts and AI advisor. Safe, Caution and Danger count devices once each. Unknown facts do not establish safety.</p></section>
-          <section><h3 className="font-semibold">2. Scanning and Arming</h3><p>Scanning shows while inventory is connecting or a new device arrives. Ready to Arm appears after a stable inventory refresh. Click it to request an armed policy. The agent also needs local arm permission; this button cannot confirm physical enforcement.</p><p>If a device joins while armed, protection stays enabled while the inventory refreshes. Routine monitoring continues in the background. Click Armed to return the policy to learning mode.</p></section>
+          <section><h3 className="font-semibold">2. Monitoring and Protection</h3><p>Devices appear as they are discovered. Open Settings and enable Automatic protection to request an armed policy. The agent also needs local arm permission. New devices do not disable protection; routine monitoring continues in the background.</p></section>
           <section><h3 className="font-semibold">3. Activity and Audit</h3><p>Activity shows the heatmap and recent recorded events. Open an event for evidence and the recorded safety-gate decision. Run audit for a digest; open the audit log to inspect requested, applied, failed and simulated outcomes.</p></section>
           <section><h3 className="font-semibold">4. Prevention</h3><p>Review Protect your devices for suggested actions. Multiple issues can refer to one device; a system-wide learning-mode issue is not an extra device.</p></section>
           <section><h3 className="font-semibold">5. Safety and Recovery</h3><p>Protected devices, learning mode, startup warmup, cooldown and restore grace constrain automatic actions. Restore returns access; it does not clean or repair a device. Volume and trained-model findings are advisory in this build.</p></section>

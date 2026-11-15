@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { DeviceControls } from "../DeviceControls";
 import { DeviceAdvisor } from "./Advisor";
 import { ReadAloud } from "./ReadAloud";
@@ -8,6 +8,7 @@ import { bandLabel, bytes, clock, eventMeta, isContained, severityDot } from "..
 import { plainEvent } from "../lib/plain";
 import { cleanupSteps } from "../lib/incident";
 import type { ActionName, DashDevice, Policy, SecurEvent } from "../types";
+import { SidePanel } from "./SidePanel";
 import { Button, Card, Status, Tag } from "./ui";
 
 const yesNo = (v: boolean | null) => (v == null ? "Unknown" : v ? "Yes" : "No");
@@ -35,12 +36,6 @@ export function DeviceDetail({
   onWarn?: (mac:string)=>void;
   audioEnabled?: boolean;
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !document.querySelector("dialog[open]")) onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   const inferredVendor = typeof device.identification?.vendor === 'string' ? device.identification.vendor : null;
   const mine = events.filter((e) => e.mac === device.mac);
   const contained = isContained(device.status);
@@ -50,16 +45,14 @@ export function DeviceDetail({
     : "Review the available device information and suggested fixes.";
   const steps = cleanupSteps(device);
   const [showTech, setShowTech] = useState(false);
-  const [visibleEvents,setVisibleEvents] = useState(10);
+  const [visibleEvents,setVisibleEvents] = useState(5);
   const [showActivity, setShowActivity] = useState(false);
 
   return (
-    <div className="fixed inset-0 z-40 flex justify-end">
-      <div className="absolute inset-0 animate-fade-in bg-black/20 backdrop-blur-[2px]" onClick={onClose} />
-      <aside className="relative flex h-full w-full max-w-[640px] animate-sheet-in flex-col overflow-y-auto bg-[#fbfbfd] shadow-[-20px_0_60px_rgba(0,0,0,0.08)]">
-        <header className="sticky top-0 z-10 flex items-center justify-between border-b border-hairline bg-[#fbfbfd]/80 px-6 py-3 backdrop-blur-xl">
-          <span className="text-[17px] font-medium text-ink-2">Device</span>
-          <Button variant="plain" className="h-8 px-2 text-[19px] font-semibold text-ink" onClick={onClose}>
+    <SidePanel label="Device" onClose={onClose} wide>
+        <header className="sticky top-0 z-10 flex items-center justify-between border-b border-hairline bg-[var(--sheet-bg)] px-6 py-3">
+          <span className="text-[17px] font-semibold tracking-wide text-ink-3">Device</span>
+          <Button data-panel-close variant="plain" className="h-8 px-2 text-[19px] font-semibold text-ink" onClick={onClose}>
             Done
           </Button>
         </header>
@@ -67,7 +60,7 @@ export function DeviceDetail({
         <div className="space-y-6 px-6 pb-10 pt-6">
           <div className="flex items-center gap-5">
             <div className="min-w-0">
-              <h2 className="text-[28px] font-semibold leading-tight tracking-tight text-ink">{device.label}</h2>
+              <h2 className="break-words [overflow-wrap:anywhere] text-[28px] font-semibold leading-tight tracking-tight text-ink">{device.label}</h2>
               <p className="mt-1 text-[18px] text-ink-2">
                 {[device.vendor, device.model].filter(Boolean).join(" ") || (inferredVendor ? `Possible maker: ${inferredVendor}` : "Unknown maker")}
               </p>
@@ -84,7 +77,7 @@ export function DeviceDetail({
             busy={busy} readOnly={!canAct} onAction={onAction} onWarn={onWarn} />
 
           {contained && (
-            <div className="rounded-2xl bg-warn/[0.08] px-4 py-3 text-[18px] leading-relaxed text-ink">
+            <div className="sheet-notice rounded-2xl border px-4 py-3 text-[18px] leading-relaxed text-ink">
               <span className="font-semibold">Contained, not fixed.</span> Access is restricted. Containment does not establish that malware is present or that the device has been repaired.
             </div>
           )}
@@ -111,7 +104,7 @@ export function DeviceDetail({
             <button
               onClick={() => setShowTech((v) => !v)}
               aria-expanded={showTech}
-              className="mb-2 flex w-full items-center justify-between px-1 text-[17px] font-semibold tracking-wide text-ink-3 hover:text-ink-2"
+              className="mb-2 flex w-full items-center justify-between px-1 text-[17px] font-semibold tracking-wide text-ink-3"
             >
               Technical Details
               <ChevronDown size={16} className={`transition-transform duration-300 ${showTech ? "rotate-180" : ""}`} aria-hidden />
@@ -134,7 +127,7 @@ export function DeviceDetail({
           </section>
 
           <section>
-            <button type="button" onClick={() => setShowActivity(value => !value)} aria-expanded={showActivity} aria-controls="device-recent-activity" className="mb-2 flex w-full items-center justify-between px-1 font-semibold text-ink-3">
+            <button type="button" onClick={() => setShowActivity(value => !value)} aria-expanded={showActivity} aria-controls="device-recent-activity" className="mb-2 flex w-full items-center justify-between px-1 text-[17px] font-semibold tracking-wide text-ink-3">
               Recent Activity<ChevronDown size={16} className={`transition-transform ${showActivity ? "rotate-180" : ""}`} aria-hidden />
             </button>
             {showActivity && <div id="device-recent-activity" className="animate-expand">
@@ -159,12 +152,11 @@ export function DeviceDetail({
                 })
               )}
             </Card>
-              {mine.length>visibleEvents&&<button className="mt-3 underline" onClick={()=>setVisibleEvents(value=>value+10)}>Show More</button>}
+              {mine.length>visibleEvents&&<button className="mt-3 underline" onClick={()=>setVisibleEvents(value=>value+5)}>Show More</button>}
             </div>}
           </section>
         </div>
-      </aside>
-    </div>
+    </SidePanel>
   );
 }
 
@@ -183,9 +175,9 @@ function Section({ title, aside, action, children }: { title: string; aside?: st
 
 function Detail({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div className="flex items-baseline justify-between gap-6 px-5 py-3 text-[18px]">
+    <div className="flex flex-col gap-1 px-5 py-3 text-[18px] sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
       <span className="shrink-0 text-ink-2">{label}</span>
-      <span className={`truncate text-right text-ink ${mono ? "font-mono text-[17px]" : ""}`}>{value}</span>
+      <span className={`min-w-0 break-words [overflow-wrap:anywhere] text-ink sm:text-right ${mono ? "font-mono text-[17px]" : ""}`}>{value}</span>
     </div>
   );
 }
