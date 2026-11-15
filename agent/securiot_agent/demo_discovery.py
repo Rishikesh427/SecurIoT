@@ -35,10 +35,10 @@ def prepare_inventory(inventory, state_dir, simulated):
                 or address in (network.network_address, network.broadcast_address)):
             continue
         if inventory.get(mac) is None and not any(d.ip == str(address) for d in inventory.devices.values()):
-            if len(inventory.devices) >= int(config.get('max_devices', 128)):
+            if len(inventory.devices) >= min(20, int(config.get('max_devices', 20))):
                 break
             inventory.devices[mac] = Device(mac, str(address), clean_name(row.get('name') or 'Guest ' + mac[-8:]),
-                protected=config.get('protect_guests', True), simulated=simulated,
+                protected=config.get('protect_guests', False), simulated=simulated,
                 risk_facts={'_demo_discovered': True})
 
 
@@ -63,7 +63,7 @@ class DemoDiscovery:
             raise ValueError('neighbor_interface is not a valid interface name')
         if config['interface'] != iface:
             raise ValueError('Discovery must use the capture/AP interface')
-        self.protect = config.get('protect_guests', True)
+        self.protect = config.get('protect_guests', False)
         if type(self.protect) is not bool:
             raise ValueError('protect_guests must be boolean')
         self.excluded = {normalize_mac(m) for m in config.get('excluded_macs', [])}
@@ -72,9 +72,9 @@ class DemoDiscovery:
         except OSError:
             pass
         self.leases = Path(config['leases']) if config.get('leases') else None
-        self.limit = int(config.get('max_devices', 128))
-        if not len(agent.inventory.devices) <= self.limit <= 1000:
-            raise ValueError('max_devices must include known devices and be <= 1000')
+        self.limit = min(20, int(config.get('max_devices', 20)))
+        if not len(agent.inventory.devices) <= self.limit <= 20:
+            raise ValueError('Configured inventory exceeds supported capacity')
         self.fingerprints = Fingerprints()
         if not OUI_AVAILABLE:
             print('Discovery: netaddr is not installed, so vendors cannot be read from MAC addresses (pip install netaddr).')
@@ -107,7 +107,8 @@ class DemoDiscovery:
                         ports=row['ports'] if isinstance(row.get('ports'), list) else ())
                 except (KeyError, ValueError, TypeError):
                     pass
-                self.register(row['mac'], row['ip'], row.get('name'), 'saved_discovery', seen=False)
+                if self.agent.enforcer.simulated:
+                    self.register(row['mac'], row['ip'], row.get('name'), 'saved_discovery', seen=False)
         for device in list(self.agent.inventory.devices.values()):
             if device.risk_facts.get('_demo_discovered'):
                 self._identify(device)
@@ -240,12 +241,16 @@ class DemoDiscovery:
         if known is None:
             if len(self.agent.inventory.devices) >= self.limit:
                 return
-            protected = self.protect or (self.cloud is not None and mac in self.cloud.remote_protected)
+            hard_protected = mac in getattr(self.agent.enforcer, 'protected', set())
+            protected = self.protect or hard_protected or (self.cloud is not None and mac in self.cloud.remote_protected)
             facts = self.fingerprints.facts(mac)
             label = facts['inferred'].get('label')
             known = Device(mac, address, clean_name(name) if name else clean_name('Guest ' + (label + ' ' if label else '') + mac[-8:]),
                            protected=protected, simulated=self.agent.enforcer.simulated)
             known.risk_facts['_demo_discovered'] = True
+            known.risk_facts['_manual_protected'] = hard_protected
+            if hard_protected:
+                self.agent.manual_protected.add(mac)
             known.risk_facts.update(facts)
             known.assessment = self.agent.detector.assess_device(known)
             self.agent.inventory.devices[mac] = known

@@ -21,6 +21,7 @@ export function DeviceDetail({
   canAct,
   policy,
   pending,
+  onWarn,
   audioEnabled = true,
 }: {
   device: DashDevice;
@@ -31,6 +32,7 @@ export function DeviceDetail({
   canAct: boolean;
   policy: Policy | null;
   pending?: string;
+  onWarn?: (mac:string)=>void;
   audioEnabled?: boolean;
 }) {
   useEffect(() => {
@@ -39,6 +41,7 @@ export function DeviceDetail({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  const inferredVendor = typeof device.identification?.vendor === 'string' ? device.identification.vendor : null;
   const mine = events.filter((e) => e.mac === device.mac);
   const contained = isContained(device.status);
   const summary = contained ? (device.status === "wan_blocked" ? "Internet access is restricted. Review the fixes before restoring access." : "This device is quarantined. Review the fixes before restoring access.")
@@ -47,6 +50,7 @@ export function DeviceDetail({
     : "Review the available device information and suggested fixes.";
   const steps = cleanupSteps(device);
   const [showTech, setShowTech] = useState(false);
+  const [visibleEvents,setVisibleEvents] = useState(10);
   const [showActivity, setShowActivity] = useState(false);
 
   return (
@@ -55,10 +59,9 @@ export function DeviceDetail({
       <aside className="relative flex h-full w-full max-w-[640px] animate-sheet-in flex-col overflow-y-auto bg-[#fbfbfd] shadow-[-20px_0_60px_rgba(0,0,0,0.08)]">
         <header className="sticky top-0 z-10 flex items-center justify-between border-b border-hairline bg-[#fbfbfd]/80 px-6 py-3 backdrop-blur-xl">
           <span className="text-[17px] font-medium text-ink-2">Device</span>
-          <div className="flex items-center gap-2"><ReadAloud text={`${device.label}. Score ${device.risk} out of 100. ${summary} ${steps.join(" ")}`} enabled={audioEnabled} label="Read Device" iconOnly />
           <Button variant="plain" className="h-8 px-2 text-[19px] font-semibold text-ink" onClick={onClose}>
             Done
-          </Button></div>
+          </Button>
         </header>
 
         <div className="space-y-6 px-6 pb-10 pt-6">
@@ -66,19 +69,19 @@ export function DeviceDetail({
             <div className="min-w-0">
               <h2 className="text-[28px] font-semibold leading-tight tracking-tight text-ink">{device.label}</h2>
               <p className="mt-1 text-[18px] text-ink-2">
-                {[device.vendor, device.model].filter(Boolean).join(" ") || "Unknown maker"}
+                {[device.vendor, device.model].filter(Boolean).join(" ") || (inferredVendor ? `Possible maker: ${inferredVendor}` : "Unknown maker")}
               </p>
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <Status status={device.status} />
                 <Tag tone={device.band === "high" ? "bad" : device.band === "medium" ? "warn" : "ok"}>{bandLabel[device.band]}</Tag>
-                {device.simulated && <Tag>Simulated</Tag>}
+                
                 {device.protected && <Tag>Protected</Tag>}
               </div>
             </div>
           </div>
 
-          <DeviceControls mac={device.mac} policy={policy} pending={pending}
-            busy={busy} readOnly={!canAct} onAction={onAction} />
+          <DeviceControls protectedDevice={device.protected} mac={device.mac} policy={policy} pending={pending}
+            busy={busy} readOnly={!canAct} onAction={onAction} onWarn={onWarn} />
 
           {contained && (
             <div className="rounded-2xl bg-warn/[0.08] px-4 py-3 text-[18px] leading-relaxed text-ink">
@@ -92,7 +95,7 @@ export function DeviceDetail({
           <DeviceAdvisor key={device.mac} device={device} audioEnabled={audioEnabled} />
 
           {steps.length > 0 && (
-            <Section title="Defend Your Device">
+            <Section title="Defend Your Device" action={<ReadAloud text={steps.join(" ")} enabled={audioEnabled} label="Read Device Defenses" iconOnly />} >
               <Card className="divide-y divide-hairline">
                 {steps.map((s, i) => (
                   <div key={s} className="flex gap-4 px-5 py-3.5">
@@ -108,7 +111,7 @@ export function DeviceDetail({
             <button
               onClick={() => setShowTech((v) => !v)}
               aria-expanded={showTech}
-              className="mb-2 flex w-full items-center justify-between px-1 text-[17px] font-normal tracking-wide text-ink-3 hover:text-ink-2"
+              className="mb-2 flex w-full items-center justify-between px-1 text-[17px] font-semibold tracking-wide text-ink-3 hover:text-ink-2"
             >
               Technical Details
               <ChevronDown size={16} className={`transition-transform duration-300 ${showTech ? "rotate-180" : ""}`} aria-hidden />
@@ -118,6 +121,7 @@ export function DeviceDetail({
                 <Card className="divide-y divide-hairline">
                   <Detail label="IP address" value={device.ip} mono />
                   <Detail label="MAC address" value={device.mac} mono />
+                  <Detail label="Firmware" value={device.firmware || "Unknown — check device settings"} />
                   <Detail label="Open ports" value={device.ports.length ? device.ports.join(", ") : "None"} />
                   <Detail label="Data in / out" value={`${bytes(device.bytes_in)} / ${bytes(device.bytes_out)}`} />
                   <Detail label="End-of-life" value={yesNo(device.eol)} />
@@ -130,7 +134,7 @@ export function DeviceDetail({
           </section>
 
           <section>
-            <button type="button" onClick={() => setShowActivity(value => !value)} aria-expanded={showActivity} aria-controls="device-recent-activity" className="mb-2 flex w-full items-center justify-between px-1 text-[17px] font-normal tracking-wide text-ink-3">
+            <button type="button" onClick={() => setShowActivity(value => !value)} aria-expanded={showActivity} aria-controls="device-recent-activity" className="mb-2 flex w-full items-center justify-between px-1 font-semibold text-ink-3">
               Recent Activity<ChevronDown size={16} className={`transition-transform ${showActivity ? "rotate-180" : ""}`} aria-hidden />
             </button>
             {showActivity && <div id="device-recent-activity" className="animate-expand">
@@ -138,7 +142,7 @@ export function DeviceDetail({
               {mine.length === 0 ? (
                 <p className="px-5 py-4 text-[18px] text-ink-3">None.</p>
               ) : (
-                mine.slice(0, 10).map((e) => {
+                mine.slice(0, visibleEvents).map((e) => {
                   const m = eventMeta[e.kind];
                   return (
                     <div key={e.id} className="flex items-start gap-3 px-5 py-3">
@@ -155,6 +159,7 @@ export function DeviceDetail({
                 })
               )}
             </Card>
+              {mine.length>visibleEvents&&<button className="mt-3 underline" onClick={()=>setVisibleEvents(value=>value+10)}>Show More</button>}
             </div>}
           </section>
         </div>
@@ -167,7 +172,7 @@ function Section({ title, aside, action, children }: { title: string; aside?: st
   return (
     <section>
       <div className="mb-2 flex items-baseline justify-between px-1">
-        <h3 className="text-[17px] font-normal tracking-wide text-ink-3">{titleCase(title)}</h3>
+        <h3 className="text-[17px] font-semibold tracking-wide text-ink-3">{titleCase(title)}</h3>
         {action}
         {aside && <span className="text-[16px] text-ink-3">{aside}</span>}
       </div>

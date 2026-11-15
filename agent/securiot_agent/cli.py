@@ -15,7 +15,7 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--replay", type=Path, metavar="CAPTURE",
                       help="Read Ethernet packets from an offline PCAP/PCAPNG file.")
     mode.add_argument("--live", metavar="IFACE",
-                      help="Sniff a live interface (needs root). Enforcement defaults to mock.")
+                      help="Sniff a live interface (needs root). Requires real Linux enforcement and discovery configuration.")
     parser.add_argument("--devices", type=Path,
                         default=None,
                         help="Known-device JSON. Real enforcement requires an explicit file with simulated=false.")
@@ -35,19 +35,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--enforcement-config", type=Path, help="Linux AP/WAN/hostapd/protected-MAC JSON.")
     mode.add_argument("--panic", action="store_true", help="After stopping the live agent, clear only SecurIoT restrictions.")
     args = parser.parse_args(argv)
+    if args.live and args.enforcement != 'linux':
+        parser.error('Live operation requires --enforcement linux --enforcement-config; mock enforcement cannot change network access')
+    if args.live and not os.environ.get('SECURIOT_DISCOVERY_CONFIG'):
+        parser.error('Live operation requires SECURIOT_DISCOVERY_CONFIG for real device discovery')
+    if args.live and args.devices:
+        parser.error('Live inventory is discovered from traffic; omit --devices (configured fixtures are not loaded)')
     if args.connect and ((not args.replay and not args.live) or args.detector != "ml" or not args.api_url or not os.environ.get("AGENT_API_KEY")):
         parser.error("--connect requires --replay or --live, --detector ml, --api-url, and AGENT_API_KEY in the environment")
     if (args.once or args.detector_factory) and not args.connect:
         parser.error("--once and --detector-factory require --connect")
     if args.live and (args.once or args.detector_factory or args.detector != "ml"):
         parser.error("Live capture requires the built-in ml adapter and continuous polling")
-    if args.enforcement == "linux" and (not (args.live or args.panic) or not args.enforcement_config or (not args.panic and args.devices is None)):
-        parser.error("Linux enforcement requires --live or --panic and --enforcement-config; live also requires explicit --devices")
+    if args.enforcement == "linux" and (not (args.live or args.panic) or not args.enforcement_config):
+        parser.error("Linux enforcement requires --live or --panic and --enforcement-config")
     if args.enforcement_config and args.enforcement != "linux":
         parser.error("--enforcement-config requires --enforcement linux")
     if args.panic and (args.enforcement != "linux" or args.connect):
         parser.error("--panic requires --enforcement linux and cannot connect to the cloud")
-    args.devices = args.devices or Path(__file__).resolve().parents[1] / "fixtures" / "devices.json"
+    args.devices = None if args.live else args.devices or Path(__file__).resolve().parents[1] / "fixtures" / "devices.json"
     runtime_dir = Path(__file__).resolve().parents[1] / "runtime"
     state_dir = args.state_dir or (runtime_dir / "linux" if args.enforcement == "linux" else runtime_dir / "live" if args.live else runtime_dir / "connected" if args.connect else runtime_dir / "replay" if args.replay else runtime_dir)
     try:

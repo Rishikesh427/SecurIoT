@@ -40,11 +40,11 @@ export function deriveIssues(
       id: `contained:${d.mac}:${incident?.id ?? d.last_seen}`,
       severity: "critical",
       title: `${label} was cut off`,
-      summary: `It started attacking your network, so CasaWarden isolated it. It's still infected until you clean it up.`,
+      summary: `Access is restricted. Review the recorded reason and suggested fixes before restoring it.`,
       why:
         ai?.source === "gemini"
-          ? `${ai.body} Isolation stops the attack from spreading, but whatever infected the device is still on it.`
-          : "Isolation stops the attack from spreading, but whatever infected the device is still on it.",
+          ? `${ai.body} Restricted access does not establish that the device is infected or repaired.`
+          : "Access was restricted. Review the action record; a manual restriction alone is not evidence of an attack.",
       explainedBy: ai?.source,
       steps: cleanupSteps(d),
       mac: d.mac,

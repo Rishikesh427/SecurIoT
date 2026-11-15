@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, USE_MOCK, api, getToken, isMissing, setToken } from "./api/client";
-import { TurtleParade, TurtleCompanion } from "./components/TurtleParade";
+import { Bandwidth } from "./components/Bandwidth";
+import { TurtleParade, TurtleHelpIcon } from "./components/TurtleParade";
 import { ActivityExplorer } from "./components/ActivityExplorer";
 import { Modal } from "./components/Modal";
-import { Landing } from "./components/Landing";
 import { deviceGroups, deviceIssueCounts } from "./lib/deviceGroups";
 import { ActivityView } from "./components/ActivityView";
 import { DeviceDetail } from "./components/DeviceDetail";
@@ -31,8 +31,7 @@ type Tab = "map" | "heatmap" | "overview";
 
 export default function App() {
   const [authed, setAuthed] = useState(() => !!getToken());
-  const [entry, setEntry] = useState(false);
-  if (!authed) return entry ? <Login onLogin={() => setAuthed(true)} onBack={() => setEntry(false)} /> : <Landing onEnter={() => setEntry(true)} />;
+  if (!authed) return <Login onLogin={() => setAuthed(true)} />;
   return (
     <Dashboard
       onLogout={() => {
@@ -75,6 +74,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   const [commands, setCommands] = useState<Record<string, {id: string; action: ActionName}>>({});
   const requestBusy = useRef(false);
   const refreshBusy = useRef(false);
+  const [agentConnected,setAgentConnected] = useState<boolean|null>(null);
   const policyRevision = useRef(0);
   const seenIncidents = useRef<Set<string> | null>(null);
 
@@ -83,14 +83,20 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   usePoll(async () => {
     try { const c = await api.capabilities(); setCanAct(c.actions); setCanRunAudit(c.auditRun); }
     catch { /* Core data polling reports connectivity separately. */ }
-  }, 30000);
+  }, 300000);
 
   const refresh = useCallback(async () => {
     if (refreshBusy.current) return;
     refreshBusy.current = true;
     const revision = policyRevision.current;
     try {
-      const results = await Promise.allSettled([
+      // One snapshot request replaces four overlapping endpoint polls.
+      const snapshot = api.dashboard ? await api.dashboard() : null;
+      if (snapshot) setAgentConnected(snapshot.agent_connected);
+      const results = snapshot ? [
+        {status:"fulfilled" as const,value:snapshot.devices}, {status:"fulfilled" as const,value:snapshot.events},
+        {status:"fulfilled" as const,value:snapshot.audit}, {status:"fulfilled" as const,value:snapshot.policy},
+      ] as const : await Promise.allSettled([
         api.devices(), api.events(), api.audit(), hasPolicy ? api.policy() : Promise.resolve(null),
       ] as const);
       for (const result of results) {
@@ -149,10 +155,10 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
     } finally { refreshBusy.current = false; }
   }, [muted, onLogout, hasPolicy]);
 
-  usePoll(refresh, 2000);
+  usePoll(refresh, offline ? 10000 : 1000);
 
   const devices: DashDevice[] = useMemo(
-    () => rawDevices.map((d) => ({ ...d, protected: !!policy?.protected_macs.includes(d.mac) })),
+    () => rawDevices.filter(d => !d.simulated).map((d) => ({ ...d, protected: d.identification?.manual_protected === true || !!policy?.protected_macs.includes(d.mac) })),
     [rawDevices, policy],
   );
 
@@ -162,24 +168,21 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   };
 
   async function act(action: ActionName, mac?: string) {
-    if (requestBusy.current || commands[mac || "all"] || commands.all || (action === "restore_all" && Object.keys(commands).length)) return;
+    if (requestBusy.current || (!action.startsWith("restore") && (commands[mac || "all"] || commands.all))) return;
     requestBusy.current = true; setBusy(true);
     try {
       const command = await api.action(action === "restore_all" ? { action } : { action, mac });
-      if (command.status === "applied" || command.status === "failed") {
-        await refresh();
-        flash(command.status === "applied" ? "Action completed. Result recorded in the audit log." : command.detail || "Action failed. Check the audit log.");
-        return;
-      }
+      if (command.status === 'applied') { setCommands(previous => { const next = {...previous}; if(action==='restore_all') return {}; delete next[mac || 'all']; return next; }); flash(USE_MOCK || command.detail?.includes('mock enforcement') || devices.find(device=>device.mac===mac)?.simulated ? 'Simulated access change recorded.' : 'Access change applied.'); await refresh(); return; }
+      if (command.status === 'failed' || command.status === 'cancelled') { flash(command.detail || 'The access change could not be applied.'); await refresh(); return; }
       setCommands(previous => ({...previous, [mac || "all"]: {id: command.id, action}}));
       await refresh();
       const name = shortLabel(devices.find((d) => d.mac === mac)?.label ?? "");
       // POST /actions only queues a command; the agent applies it on its next sync.
       const msg: Record<ActionName, string> = {
-        quarantine: `Quarantine requested for ${name}. Awaiting agent acknowledgement.`,
-        block_wan: `Internet block requested for ${name}. Awaiting agent acknowledgement.`,
-        restore: `Restore requested for ${name}. Awaiting agent acknowledgement.`,
-        restore_all: "Restore all requested. Awaiting agent acknowledgement.",
+        quarantine: `Quarantine requested for ${name}. Applying automatically when the Pi is connected.`,
+        block_wan: `Internet block requested for ${name}. Applying automatically when the Pi is connected.`,
+        restore: `Restore requested for ${name}. Applying automatically when the Pi is connected.`,
+        restore_all: "Restore all requested. Applying automatically when the Pi is connected.",
       };
       flash(msg[action]);
     } catch (e) {
@@ -259,7 +262,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
         <div className="flex h-16 items-center justify-between gap-2 px-3 sm:px-6">
           <div className="flex items-center gap-2"><Logo size={28} /><span className="hidden text-lg font-semibold sm:inline">CasaWarden</span></div>
           <div className="flex flex-wrap items-center gap-1">
-            {isolated.length > 0 && canAct && <Button onClick={() => act("restore_all")} disabled={busy || offline || Object.keys(commands).length > 0} className="h-8">Restore all</Button>}
+            {isolated.length > 0 && canAct && <Button onClick={() => act("restore_all")} disabled={busy || offline} className="h-8">Restore all</Button>}
             <div className="hidden lg:block"><StorageBadge /></div>
             <SoundToggle muted={muted} onToggle={() => { unlockAudio(); setMuted((m) => !m); }} />
             <ThemeToggle theme={theme} onToggle={toggleTheme} />
@@ -274,22 +277,23 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
             <button key={item.value} aria-current={tab === item.value ? "page" : undefined} onClick={() => setTab(item.value)}
               className={`w-full rounded-xl px-3 py-3 text-left text-sm font-medium transition-all ${tab === item.value ? "bg-ink text-white" : "text-ink-2 hover:bg-fill"}`}>{item.label}</button>)}
         </nav>
-        <main className="min-w-0 flex-1 px-4 pb-8 pt-8 sm:px-8">
+        <main className="min-w-0 flex-1 px-4 pb-32 pt-8 sm:px-8">
           <div className="mx-auto max-w-[1200px] space-y-5">
             {offline && <div role="alert" className="rounded-xl border border-hairline bg-fill p-4 text-sm">
               Dashboard updates unavailable. {connectionError} Last received data is retained. Agent connectivity cannot be determined from this error.
             </div>}
+            {agentConnected === false && <p role="status" className="text-sm text-ink-3">Pi agent not connected. Check its service logs and API URL; access changes require the running Linux agent.</p>}
             {warnings.length > 0 && <div role="alert" className="rounded-xl border border-hairline p-3 text-xs text-ink-2">{warnings.join(" · ")}</div>}
             {Object.keys(commands).length > 0 && <p className="text-xs text-ink-3">{Object.keys(commands).length} command(s) awaiting agent acknowledgement. Check the audit log for results.</p>}
-            {tab === "map" && <div className="animate-rise-in"><HomeMap devices={devices} rates={rates} groups={groups} issueCounts={issueCounts} theme={theme} onSelect={setSelected}
+            {tab === "map" && <div className="animate-rise-in"><HomeMap devices={devices} rates={rates} groups={groups} issueCounts={issueCounts} theme={theme} onSelect={setSelected} bandwidth={<Bandwidth traffic={traffic}/>}
               status={<p className="flex items-center gap-2 text-xs text-ink-3"><span className={`h-2 w-2 rounded-full ${offline ? "bg-bad" : loaded ? "bg-ok" : "bg-gray-400"}`} />{offline ? "Updates unavailable" : loaded ? "Dashboard connected" : "Connecting"}{armed ? " · System engaged" : " · Learning mode"}</p>}
               controls={<>
                 <button type="button" role="switch" aria-checked={armed} aria-label={armLabel}
                   disabled={scanning || !policy || !policyFresh || armingBusy}
                   onClick={() => void setArmed(!armed).catch(() => undefined)}
                   title="Updates the response policy. Real containment also requires the agent's local arm permission. Scanning means inventory refresh, not a vulnerability scan."
-                  className={`rounded-full px-5 py-2 text-sm font-medium transition-all ${scanning ? "bg-gray-200 text-gray-500" : "bg-black text-white"} disabled:cursor-wait`}>{armingBusy ? "Saving…" : armLabel}</button>
-                <button type="button" aria-label="Open tutorial" onClick={() => setTutorialOpen(true)} className="flex h-11 items-center rounded-full text-ink transition-transform hover:rotate-12 hover:bg-fill"><TurtleCompanion /><span className="sr-only">Help</span></button>
+                  className={`arm-control rounded-full px-5 py-2 text-sm font-medium transition-all ${scanning ? "bg-gray-200 text-gray-500" : ""} disabled:cursor-wait`} data-scanning={scanning}>{armingBusy ? "Saving…" : armLabel}</button>
+                <button type="button" aria-label="Open tutorial" onClick={() => setTutorialOpen(true)} className="grid h-9 w-9 place-items-center rounded-full text-ink transition-transform hover:rotate-12 hover:bg-fill"><TurtleHelpIcon/></button>
               </>} /></div>}
             {tab === "heatmap" && <div className="animate-rise-in space-y-10">
               <Heatmap devices={devices} events={events} now={now} />
@@ -307,7 +311,6 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
       </Modal>}
       {tutorialOpen && <Modal title="CasaWarden tutorial" onClose={() => setTutorialOpen(false)}>
         <div className="space-y-6 text-sm leading-relaxed">
-          <div className="flex items-center gap-3"><TurtleCompanion variant={1} /><p>A little guidance for a safer home network.</p></div>
           <section><h3 className="font-semibold">1. Home and Devices</h3><p>Tap a device to see its reported facts, traffic, alerts and AI advisor. Safe, Caution and Danger count devices once each. Unknown facts do not establish safety.</p></section>
           <section><h3 className="font-semibold">2. Scanning and Arming</h3><p>Scanning shows while inventory is connecting or a new device arrives. Ready to Arm appears after a stable inventory refresh. Click it to request an armed policy. The agent also needs local arm permission; this button cannot confirm physical enforcement.</p><p>If a device joins while armed, protection stays enabled while the inventory refreshes. Routine monitoring continues in the background. Click Armed to return the policy to learning mode.</p></section>
           <section><h3 className="font-semibold">3. Activity and Audit</h3><p>Activity shows the heatmap and recent recorded events. Open an event for evidence and the recorded safety-gate decision. Run audit for a digest; open the audit log to inspect requested, applied, failed and simulated outcomes.</p></section>
@@ -334,7 +337,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
         />
       )}
 
-      {selectedDevice && <DeviceDetail audioEnabled={!muted} device={selectedDevice} events={events} busy={busy} canAct={canAct} policy={policy} pending={commands[selectedDevice.mac]?.action || commands.all?.action} onClose={() => setSelected(null)} onAction={act} />}
+      {selectedDevice && <DeviceDetail onWarn={async (mac) => { try { await api.warn(mac); flash('Warning recorded.'); await refresh(); } catch(e) { flash(e instanceof Error ? e.message : 'Could not record warning'); } }} audioEnabled={!muted} device={selectedDevice} events={events} busy={busy} canAct={canAct} policy={policy} pending={commands[selectedDevice.mac]?.action || commands.all?.action} onClose={() => setSelected(null)} onAction={act} />}
 
       <div
         className={`fixed left-1/2 top-20 z-50 -translate-x-1/2 transition-all duration-500 ${toast ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-3 opacity-0"}`}

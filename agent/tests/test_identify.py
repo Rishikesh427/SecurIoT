@@ -12,7 +12,7 @@ from scapy.layers.l2 import Ether
 from securiot_agent.collector import TrafficCollector
 from securiot_agent.demo_discovery import DemoDiscovery
 from securiot_agent.enforcement import MockEnforcer
-from securiot_agent.identify import classify, oui_vendor, safe_text
+from securiot_agent.identify import OUI_AVAILABLE, classify, oui_vendor, safe_text
 from securiot_agent.inventory import Inventory
 from securiot_agent.models import Device
 from securiot_agent.packets import decode_packet
@@ -89,10 +89,12 @@ class PacketTests(unittest.TestCase):
 
 
 class ClassifyTests(unittest.TestCase):
+    @unittest.skipUnless(OUI_AVAILABLE, 'Install the optional netaddr registry dependency')
     def test_oui_lookup_and_randomized_macs(self):
         self.assertIn("Espressif", oui_vendor(ESP))
         self.assertIsNone(oui_vendor(PHONE))
 
+    @unittest.skipUnless(OUI_AVAILABLE, 'Install the optional netaddr registry dependency')
     def test_esp_board_is_a_microcontroller(self):
         result = classify(ESP, "ESP-1A2B3C", None, oui_vendor(ESP))
         self.assertEqual(result["type"], "microcontroller")
@@ -119,6 +121,7 @@ class DiscoveryTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
 
+    @unittest.skipUnless(OUI_AVAILABLE, 'Install the optional netaddr registry dependency')
     def test_new_arduino_style_board_is_identified_for_the_advisor(self):
         rig = Rig(self.tmp.name)
         rig.packet(dhcp_discover(ESP, "ESP-1A2B3C"))            # DHCP arrives before the IP is known
@@ -162,6 +165,7 @@ class DiscoveryTests(unittest.TestCase):
         rig.packet(dhcp_discover(PHONE, "Pixel-8"))
         self.assertEqual(rig.agent.inventory.get(PHONE).assessment["type"], "phone")
 
+    @unittest.skipUnless(OUI_AVAILABLE, 'Install the optional netaddr registry dependency')
     def test_identity_survives_restart_and_tampered_cache_is_sanitized(self):
         rig = Rig(self.tmp.name)
         rig.packet(dhcp_discover(ESP, "ESP-1A2B3C"))

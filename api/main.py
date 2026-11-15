@@ -23,12 +23,6 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=1024)
 
 
-class SignupRequest(BaseModel):
-    username: str = Field(min_length=1, max_length=100, pattern=r'^[A-Za-z0-9_.-]+$')
-    password: str = Field(min_length=16, max_length=1024)
-    invite_code: str = Field(min_length=1, max_length=1024)
-
-
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -66,7 +60,7 @@ def create_app(settings=None, database=None):
     async def lifespan(app):
         app.state.settings = settings or Settings.load()
         # The ML helpers use process variables; preserve explicitly exported values.
-        for key in ('GEMINI_API_KEY', 'GEMINI_MODEL'):
+        for key in ('GEMINI_API_KEY', 'GEMINI_MODEL', 'GEMINI_RESEARCH_MODEL', 'GEMINI_STATE_PATH', 'GEMINI_DAILY_REQUEST_LIMIT'):
             if env.get(key):
                 os.environ.setdefault(key, env[key])
         from api.storage import Storage
@@ -89,19 +83,6 @@ def create_app(settings=None, database=None):
     app.add_middleware(CORSMiddleware, allow_origins=[s.strip() for s in origins.split(",") if s.strip()],
                        allow_methods=["GET", "POST", "PUT"], allow_headers=["Authorization", "Content-Type", "X-API-Key", "If-Match", "Idempotency-Key"],
                        expose_headers=['ETag', 'X-Storage-Mode', 'X-Demo-Storage'])
-
-    @app.post('/auth/signup', response_model=TokenResponse, status_code=201)
-    def signup(body: SignupRequest, request: Request):
-        import hmac
-        from api.auth import passwords
-        expected = environment().get('SIGNUP_INVITE_CODE', '')
-        if len(expected) < 16:
-            raise HTTPException(503, 'Sign up is not enabled. Ask your network administrator for an invitation.')
-        if not hmac.compare_digest(body.invite_code.encode(), expected.encode()):
-            raise HTTPException(403, 'Invalid invitation code')
-        user = request.app.state.db.create_user(body.username, passwords.hash(body.password))
-        return TokenResponse(access_token=issue_token(user, request.app.state.settings),
-                             expires_in=request.app.state.settings.token_minutes * 60)
 
     def storage_status(request):
         db = request.app.state.db

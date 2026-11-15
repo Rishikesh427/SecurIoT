@@ -1,5 +1,7 @@
 """Shared-contract validation and H8–12 routes."""
 import hmac
+import time
+from datetime import datetime, timezone
 from ipaddress import IPv4Address
 from typing import Annotated, Literal
 from uuid import UUID
@@ -23,6 +25,8 @@ class Device(StrictModel):
     type: str
     vendor: str | None
     model: str | None = None
+    firmware: str | None = None
+    identification: dict = Field(default_factory=dict)
     kev: Literal['confirmed', 'possible', 'none', 'unknown'] = 'unknown'
     ports: list[Annotated[int, Field(ge=1, le=65535)]]
     bytes_in: int = Field(ge=0)
@@ -83,12 +87,49 @@ def agent_auth(request: Request, key: str | None = Header(default=None, alias='X
 def router(current_user):
     routes = APIRouter()
 
+    @routes.get('/diagnostics', dependencies=[Depends(current_user)])
+    def diagnostics(request: Request):
+        from ml.securiot_ml import advisor as ai
+        from ml.securiot_ml.usage_guard import status as usage_status
+        import os
+        state = request.app.state
+        sync = getattr(state, 'last_sync', None)
+        return {'agent': {'connected': bool(sync and time.time()-sync < 10),
+                    'sync_age_seconds': round(time.time()-sync, 1) if sync else None,
+                    'last_ingest': getattr(state, 'last_ingest', None), 'last_ack': getattr(state, 'last_ack', None)},
+                'live_only': state.settings.live_only,
+                'gemini': {'configured': ai.configured(), 'model': os.getenv('GEMINI_MODEL', ''),
+                    'last_failure': ai.LAST_FAILURE, 'usage': usage_status(),
+                    'pending': len(state.advisor.pending), 'cached': len(state.advisor.cache)},
+                'note': 'Connection timestamps cover this API process since restart; no heartbeat means not yet observed.'}
+
+    @routes.get('/dashboard', dependencies=[Depends(current_user)])
+    def dashboard(request: Request, response: Response):
+        db = request.app.state.db
+        rows = db.devices()
+        activity = db.events(100, 0)
+        if request.app.state.settings.live_only:
+            rows = [d for d in rows if not d.get('simulated')]
+            activity = [e for e in activity if e.get('source') != 'simulator']
+        policy = db.get_policy()
+        response.headers['ETag'] = '"' + policy['etag'] + '"'
+        sync = getattr(request.app.state, 'last_sync', None)
+        return {'devices': request.app.state.advisor.decorate(rows, activity),
+                'events': request.app.state.explanations.decorate(activity, rows),
+                'audit': db.audit(), 'policy': policy['policy'],
+                'agent_connected': bool(sync and time.time()-sync < 10)}
+
     @routes.post('/ingest', dependencies=[Depends(agent_auth)])
     def ingest(body: Ingest, request: Request):
-        return request.app.state.db.ingest(body)
+        if request.app.state.settings.live_only and (any(d.simulated for d in body.devices) or any(e.source == 'simulator' for e in body.events)):
+            raise HTTPException(409, 'Live API rejects simulated telemetry. Run the Pi agent with Linux enforcement.')
+        result = request.app.state.db.ingest(body)
+        request.app.state.last_ingest = time.time()
+        return result
 
     @routes.get('/sync', dependencies=[Depends(agent_auth)])
     def sync(request: Request, response: Response, etag: str | None = None):
+        request.app.state.last_sync = time.time()
         result = request.app.state.db.sync()
         headers = {'ETag': '"' + result['etag'] + '"', 'Cache-Control': 'no-store'}
         if etag == result['etag'] and not result['commands']:
@@ -99,19 +140,27 @@ def router(current_user):
     @routes.post('/commands/{command_id}/ack', status_code=204, dependencies=[Depends(agent_auth)])
     @routes.post('/ack', status_code=204, dependencies=[Depends(agent_auth)])
     def ack(command_id: UUID, body: Ack, request: Request):
+        if request.app.state.settings.live_only and body.detail and 'mock enforcement' in body.detail:
+            raise HTTPException(409, 'Mock acknowledgement rejected by live API. Restart the Pi agent with Linux enforcement.')
         request.app.state.db.ack(command_id, body)
+        request.app.state.last_ack = time.time()
         return Response(status_code=204)
 
     @routes.get('/devices', dependencies=[Depends(current_user)])
     def devices(request: Request):
         from api.advisor import recent_events
-        return request.app.state.advisor.decorate(request.app.state.db.devices(), recent_events(request.app.state.db))
+        rows = request.app.state.db.devices()
+        if request.app.state.settings.live_only:
+            rows = [d for d in rows if not d.get('simulated')]
+        return request.app.state.advisor.decorate(rows, recent_events(request.app.state.db))
 
     @routes.get('/events', dependencies=[Depends(current_user)])
     def events(request: Request, limit: int = 100, offset: int = 0):
         if not 1 <= limit <= 1000 or offset < 0:
             raise HTTPException(422, 'limit must be 1–1000 and offset nonnegative')
         events = request.app.state.db.events(limit, offset)
+        if request.app.state.settings.live_only:
+            events = [e for e in events if e.get('source') != 'simulator']
         return request.app.state.explanations.decorate(events, request.app.state.db.devices())
 
     return routes

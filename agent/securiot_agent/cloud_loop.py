@@ -37,8 +37,8 @@ class CloudLoop:
             kind: Draft202012Validator({**schema, "$ref": f"#/$defs/{kind}"}, format_checker=FormatChecker())
             for kind in ("Ingest", "Sync", "Command", "Ack")
         }
-        if len(agent.inventory.devices) > 1000:
-            raise ValueError("This skeleton supports at most 1000 configured devices")
+        if len(agent.inventory.devices) > 20:
+            raise ValueError("Configured inventory exceeds supported capacity")
         self.path = agent.storage.directory / "cloud.json"
         identity = hashlib.sha256(client.identity.encode()).hexdigest()
         self.state = json.loads(self.path.read_text()) if self.path.exists() else {
@@ -53,7 +53,12 @@ class CloudLoop:
             if not isinstance(pending, dict) or type(pending.get("stop")) is not int or pending["stop"] < self.state["cursor"]:
                 raise ValueError("Invalid pending ingest journal")
             self.validators["Ingest"].validate(pending["payload"])
+        if not agent.enforcer.simulated and pending is not None:
+            payload = pending['payload']
+            payload['devices'] = [d for d in payload['devices'] if not d.get('simulated')]
+            payload['events'] = [e for e in payload['events'] if e.get('source') != 'simulator']
         self.etag = ""  # Fetch full policy again after every process restart.
+        self.local_manual_protected = set(getattr(agent, 'manual_protected', set()))
         self.remote_protected = set()
         self.local_protected = {d.mac for d in agent.inventory.devices.values() if d.protected}
         # Never retry an action that might have executed before a process crash.
@@ -64,6 +69,8 @@ class CloudLoop:
                 raise ValueError("Invalid command journal")
             if record.get("ack") is not None:
                 self.validators["Ack"].validate(record["ack"])
+            if not agent.enforcer.simulated and record.get('ack') and 'mock enforcement' in (record['ack'].get('detail') or '') and not record['sent']:
+                record['ack'] = self.ack('failed', 'Retired mock result; request a new action on the live device')
             if record.get("ack") is None:
                 record["ack"] = self.ack("failed", "Interrupted action; outcome uncertain, manual review required")
         self.save()
@@ -77,7 +84,8 @@ class CloudLoop:
 
     def apply_policy(self, policy):
         self.remote_protected = {normalize_mac(mac) for mac in policy["protected_macs"]}
-        protected = self.local_protected | self.remote_protected
+        protected = self.local_protected | self.remote_protected | set(getattr(self.agent.enforcer, "protected", set()))
+        self.agent.manual_protected = self.local_manual_protected | self.remote_protected
         for device in self.agent.inventory.devices.values():
             device.protected = device.mac in protected
         self.agent.policy.learning_mode = policy["learning_mode"] or not self.permit_arm
@@ -98,8 +106,9 @@ class CloudLoop:
         self.state["commands"][identifier] = record
         self.save()  # Durable intent before any action.
         event = self.agent.request_action(command["action"], command.get("mac"), manual=True)
-        record["ack"] = self.ack("applied" if event.actions_taken else "failed",
+        record["ack"] = self.ack("applied" if event.actions_taken or event.evidence.get("decision") == "already_restricted" else "failed",
                                  event.evidence["decision"])
+        print(f"Command {identifier} {command['action']}: {record['ack']['status']} — {record['ack']['detail']}")
         self.save()  # Freeze the exact acknowledgement for network retries.
 
     def sync(self):
@@ -133,8 +142,24 @@ class CloudLoop:
             anomalies = getattr(self.agent.detector, "anomaly", {})
             devices = [converted for d in self.agent.inventory.devices.values()
                        if (converted := device_record(d, anomalies.get(d.mac, 0))) is not None]
+            if not self.agent.enforcer.simulated:
+                devices = [d for d in devices if not d.get('simulated')]
+                wire_events = [e for e in wire_events if e.get('source') != 'simulator']
             batch = {"devices": devices, "events": wire_events}
-            self.validators["Ingest"].validate(batch)
+            digest = hashlib.sha256(json.dumps(batch["devices"], sort_keys=True).encode()).hexdigest()
+            if stop == self.state['cursor'] and digest == self.state.get('last_upload_digest'):
+                return  # No telemetry changes; sync still supplies a heartbeat.
+            try:
+                self.validators["Ingest"].validate(batch)
+            except ValidationError:
+                # Inferred type/vendor labels are new; if the shared contract rejects them,
+                # send those devices as unknown rather than stalling all telemetry.
+                inferred = {d.mac for d in self.agent.inventory.devices.values() if d.risk_facts.get("inferred")}
+                batch["devices"] = [{**r, "type": "unknown", "vendor": None} if r["mac"] in inferred else r for r in devices]
+                self.validators["Ingest"].validate(batch)  # still invalid -> reported by tick() as before
+                if not getattr(self, "_warned_inferred", False):
+                    print("Cloud: contract rejected inferred device type/vendor; sending those as unknown. Check contract/schemas.json.")
+                    self._warned_inferred = True
             self.state["pending_batch"] = {"payload": batch, "stop": stop}
             self.save()  # Exact payload survives a lost HTTP response/restart.
         pending = self.state["pending_batch"]
@@ -144,6 +169,7 @@ class CloudLoop:
             for key, field in (("accepted_devices", "devices"), ("accepted_events", "events"))
         ):
             raise CloudError("Invalid ingest acknowledgement; batch retained")
+        self.state["last_upload_digest"] = hashlib.sha256(json.dumps(pending["payload"]["devices"], sort_keys=True).encode()).hexdigest()
         self.state["cursor"] = pending["stop"]
         self.state["pending_batch"] = None
         self.save()

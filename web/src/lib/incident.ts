@@ -80,5 +80,6 @@ export function cleanupSteps(d: Device): string[] {
   if (d.eol) steps.push("It no longer gets updates. Keep it blocked from the internet or replace it.");
   if (d.ports.some((p) => p === 23 || p === 2323)) steps.push("Turn off Telnet in the device settings if possible.");
   if (d.ports.includes(80)) steps.push("Avoid using its plain-HTTP admin page on shared networks.");
+  if (d.ai?.source === "gemini" && d.ai.next_step && !steps.includes(d.ai.next_step)) steps.push(d.ai.next_step);
   return steps;
 }
