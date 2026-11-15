@@ -10,6 +10,12 @@ type Size = keyof typeof SIZE;
 const COLS = 12;
 const NAME = ["Quiet", "Notice", "Warning", "Quarantined"];
 
+// Columns end at `now`, oldest on the left: column i covers [start(i), start(i + 1)).
+const columnStart = (now: number, size: Size, i: number) => now - (COLS - i) * SIZE[size];
+const clockTime = (ms: number, size: Size) =>
+  new Date(ms).toLocaleTimeString([], size === "1h" ? { hour: "numeric" } : { hour: "numeric", minute: "2-digit" });
+const LABEL_EVERY = 3;
+
 const levelOf = (e: SecurEvent) =>
   e.actions_taken.includes("quarantine") ? 3
   : e.actions_taken.includes("block_wan") || e.would_have.length || e.kind === "scan_arp" || e.kind === "decoy_touch" ? 2 : 1;
@@ -51,14 +57,15 @@ export function Heatmap({ devices, events, now }: { devices: DashDevice[]; event
         <h1 className="t-head">Activity</h1>
         <Segmented<Size> value={size} onChange={setSize} options={[{ value: "1m", label: "1 min" }, { value: "5m", label: "5 min" }, { value: "1h", label: "1 hour" }]} />
       </div>
-      <p className="t-body text-ink-2">Each square is one {unit}. Darker orange means a more serious warning; red means the device was quarantined.</p>
+      <p className="t-body text-ink-2">Each square is one {unit}, oldest on the left and the latest on the right. Darker orange means a more serious warning; red means the device was quarantined. Hover a square for its exact time.</p>
       <div className="overflow-x-auto"><div className="min-w-[560px] space-y-2">
         {rows.map(({ d, cells }) => (
           <div key={d.mac} className="flex items-center gap-3">
             <span className="t-sub w-32 shrink-0 truncate">{shortLabel(d.label)}</span>
             <div className="grid flex-1 gap-1" style={{ gridTemplateColumns: `repeat(${COLS}, 1fr)` }}>
               {cells.map((c, i) => (
-                <div key={i} data-cell data-lvl={c.lvl} role="img" title={`${NAME[c.lvl]}${c.n ? ` · ${c.n} event${c.n > 1 ? "s" : ""}` : ""}`}
+                <div key={i} data-cell data-lvl={c.lvl} role="img"
+                  title={`${clockTime(columnStart(now, size, i), size)}–${i === COLS - 1 ? "now" : clockTime(columnStart(now, size, i + 1), size)} · ${NAME[c.lvl]}${c.n ? ` · ${c.n} event${c.n > 1 ? "s" : ""}` : ""}`}
                   aria-label={`${shortLabel(d.label)}, ${NAME[c.lvl]}`}
                   className="grid h-9 place-items-center rounded-md"
                   style={{ background: `var(--heat-${c.lvl})`, color: `var(--heat-ink-${c.lvl || 1})` }}>
@@ -68,7 +75,20 @@ export function Heatmap({ devices, events, now }: { devices: DashDevice[]; event
             </div>
           </div>
         ))}
-        <div className="t-cap t-mono flex justify-between pl-[140px]"><span>older</span><span>now</span></div>
+        {rows.length > 0 && <>
+          {/* Time axis, lined up with the columns: when each block starts, ending at Now. */}
+          <div className="flex items-start gap-3" aria-label="Time axis">
+            <span className="w-32 shrink-0" />
+            <div className="grid flex-1 gap-1" style={{ gridTemplateColumns: `repeat(${COLS}, 1fr)` }}>
+              {Array.from({ length: COLS }, (_, i) => (
+                <span key={i} className={`t-cap t-mono whitespace-nowrap text-center ${i === COLS - 1 ? "font-semibold text-ink" : "text-ink-3"}`}>
+                  {i === COLS - 1 ? "Now" : i % LABEL_EVERY === 0 ? clockTime(columnStart(now, size, i), size) : ""}
+                </span>
+              ))}
+            </div>
+          </div>
+          <div className="t-cap flex justify-between pl-[140px] text-ink-3"><span>← Older</span><span>Newer →</span></div>
+        </>}
       </div></div>
       {!rows.length && <p className="t-body text-ink-2">No devices reported yet.</p>}
       <ul className="t-cap flex flex-wrap gap-4">
