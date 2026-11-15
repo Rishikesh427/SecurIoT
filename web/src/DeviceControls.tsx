@@ -11,12 +11,14 @@ export function quarantineReason(policy: Policy | null, mac: string) {
 
 export function DeviceControls({ mac, policy, pending, busy, readOnly, onAction }: {
   mac: string; policy: Policy | null; pending?: string; busy: boolean; readOnly: boolean;
-  onAction: (action: 'quarantine' | 'restore', mac: string) => void;
+  onAction: (action: 'quarantine' | 'block_wan' | 'restore', mac: string) => void;
 }) {
   const reason = quarantineReason(policy, mac);
   return <div className="space-y-2" aria-label="Manual device controls">
     <Button className="w-full" disabled={readOnly || busy || !!pending || !!reason} title={reason || 'Disconnect this device and prevent reconnection'}
       onClick={() => onAction('quarantine', mac)}>Quarantine</Button>
+    <Button className="w-full" disabled={readOnly || busy || !!pending || !policy || policy.learning_mode || policy.protected_macs.includes(mac) || !policy.ladder.block_wan} title="Block internet access while keeping local network access"
+      onClick={() => onAction("block_wan", mac)}>Warn / Block Internet</Button>
     <Button className="w-full" disabled={readOnly || busy || !!pending} title="Remove quarantine and internet restrictions"
       onClick={() => onAction('restore', mac)}>Restore access</Button>
     <p className="text-[17px] text-ink-2">Manual quarantine overrides automatic timing delays. Restore removes restrictions and gives the device a recovery grace period.</p>

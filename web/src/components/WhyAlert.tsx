@@ -12,11 +12,11 @@ export function WhyAlert({ event }: { event: SecurEvent }) {
   const requested = event.evidence.requested_action;
 
   return (
-    <section
+    <details
       aria-label="Why this alert?"
       className="space-y-3 rounded-xl border border-hairline p-4"
     >
-      <h3 className="font-semibold text-ink">Why This Alert?</h3>
+      <summary className="cursor-pointer text-[17px] font-normal text-ink">Why This Alert?</summary>
 
       <dl className="space-y-2 text-sm text-ink-2">
         <div>
@@ -75,6 +75,6 @@ export function WhyAlert({ event }: { event: SecurEvent }) {
         establish compromise, and an applied report is not independent proof
         of containment.
       </p>
-    </section>
+    </details>
   );
 }

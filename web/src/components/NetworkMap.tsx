@@ -139,7 +139,7 @@ export default function NetworkMap({ devices, rates, issueCounts = {}, onSelect 
   }, [rates]);
 
   return <div role="group" aria-label="Home Network Map">
-    <div ref={box} className="h-[500px] w-full" aria-hidden="true" />
+    <div ref={box} className="h-[380px] w-full" aria-hidden="true" />
     <ul className="sr-only">{devices.map(device => <li key={device.mac}><button onClick={() => onSelect(device.mac)}>{shortLabel(device.label)}: {issueCounts[device.mac] ?? 0} Security Issues. Open Fixes.</button></li>)}</ul>
   </div>;
 }

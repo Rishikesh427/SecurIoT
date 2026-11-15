@@ -44,15 +44,27 @@ class VulnerabilityAssessor:
         def flag(category, summary, evidence, status=None):
             flags.append({"category": category, "status": status or ("simulated" if simulated else "reported"),
                           "summary": summary, "evidence": evidence})
-        ports = set(facts.get("ports", []))
+        # Passive discovery (identify.py) supplies inferred identity and ports the device answered
+        # on. They are reported as such and never feed KEV matching or the vendor/type score inputs.
+        inferred = facts.pop("inferred", None)
+        inferred = inferred if isinstance(inferred, dict) else {}
+        observed_input = facts.pop("observed_ports", None)
+        observed = {p for p in (observed_input if isinstance(observed_input, list) else [])
+                    if type(p) is int and 1 <= p <= 65535}
+        configured = set(facts.get("ports", []))
+        ports = configured | observed
         admin_ports = set(facts.get("admin_ports", []))
         for port in sorted(ports):
+            seen_only = port in observed and port not in configured
+            source = "passive_observation" if seen_only else "device_configuration"
+            where = "observed listening port" if seen_only else "reported port"
             if port in SERVICES:
-                flag("service_review", f"{SERVICES[port]} on reported port {port}; review access and configuration",
-                     {"port": port, "source": "device_configuration", "verified_by_agent": False})
+                flag("service_review", f"{SERVICES[port]} on {where} {port}; review access and configuration",
+                     {"port": port, "source": source, "verified_by_agent": False})
             elif port in (80, 8080):
-                flag("http_review", f"HTTP on reported port {port}; an admin interface is not established by port number alone",
-                     {"port": port, "admin_reported": port in admin_ports, "verified_by_agent": False})
+                flag("http_review", f"HTTP on {where} {port}; an admin interface is not established by port number alone",
+                     {"port": port, "admin_reported": port in admin_ports, "verified_by_agent": False,
+                      **({"source": source} if seen_only else {})})
         for key, summary in (("default_creds", "Default credentials reported; change them and verify locally"),
                              ("eol", "End-of-life status reported; verify the vendor support policy"),
                              ("cloud_only", "Cloud-only operation reported; review dependency and egress needs")):
@@ -80,7 +92,8 @@ class VulnerabilityAssessor:
         static = score_device({**scoring, "anomaly": 0}, kev)
         result = score_device(scoring, kev)
         unknown = [key for key in ("vendor", "model", "eol", "default_creds", "cloud_only")
-                   if profile.get(key) is None or profile.get(key) == ""]
+                   if (profile.get(key) is None or profile.get(key) == "")
+                   and not (key == "vendor" and inferred.get("vendor"))]
         if "ports" not in facts:
             unknown.append("ports")
         reasons = []
@@ -92,6 +105,18 @@ class VulnerabilityAssessor:
             else:
                 reasons.append(("Simulated fact: " if simulated else "Reported fact (not independently checked): ") + reason)
         reasons += [f"{f['status']}: {f['summary']}" for f in flags]
+        if inferred:
+            basis = "; ".join(str(b) for b in inferred.get("basis", []))
+            what = inferred.get("label") or inferred.get("type")
+            if what or inferred.get("vendor"):
+                reasons.append(f"Passive identification (inferred, not verified; {inferred.get('confidence', 'low')} confidence): "
+                               f"{what or 'vendor only'}" + (f", vendor {inferred['vendor'].rstrip('.')}" if inferred.get("vendor") else "")
+                               + (f". Basis: {basis}." if basis else "."))
+            else:
+                reasons.append("Passive identification found no vendor or device type" + (f" ({basis})" if basis else "") + ".")
+        if observed:
+            reasons.append("Passively observed listening ports: " + ", ".join(map(str, sorted(observed)))
+                           + " (from the device's own SYN-ACK replies; not a full port scan).")
         if unknown:
             reasons.append("Unknown inputs: " + ", ".join(unknown) + ". Low risk is not proof of safety.")
         reasons.append(f"Static risk {static.score}/100; behavioral contribution {result.score - static.score} point(s).")
@@ -101,7 +126,7 @@ class VulnerabilityAssessor:
             age = max(0, (datetime.now(timezone.utc) - released).days)
         except (KeyError, ValueError, TypeError):
             pass
-        return {"type": profile.get("type", "unknown"), "eol": profile.get("eol"),
+        return {"type": profile.get("type") or inferred.get("type") or "unknown", "eol": profile.get("eol"),
                 "cloud_only": profile.get("cloud_only"), "risk": result.score, "band": result.band,
                 "static_risk": static.score, "static_band": static.band,
                 "behavior_points": result.score - static.score,
@@ -111,6 +136,7 @@ class VulnerabilityAssessor:
                              "identity_complete": bool(vendor and model), "unknown_inputs": unknown,
                              "facts_verified_by_agent": False, "firmware_applicability_checked": False,
                              "matching_catalog_entries": len(matches),
+                             "inferred_identity": inferred or None, "observed_ports": sorted(observed),
                              "note": "No match is not proof of safety. No active port/credential checks were run."}}
 
 
