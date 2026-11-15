@@ -5,6 +5,7 @@ import time
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from threading import RLock
+from urllib.error import URLError
 
 from ml.securiot_ml.gemini import configured
 from ml.securiot_ml.explain import cache_key, explain, template, validate
@@ -78,7 +79,8 @@ class ExplanationService:
             if time.monotonic() < deadline:
                 result, generated = candidate, True
         except Exception as exc:
-            logger.warning('Event explanation failed (%s); serving template', type(exc).__name__)
+            reason = type(exc.reason).__name__ if isinstance(exc, URLError) else type(exc).__name__
+            logger.warning('Event explanation failed (%s); serving template', reason)
         finally:
             with self.lock:
                 self._put(key, result, generated)
