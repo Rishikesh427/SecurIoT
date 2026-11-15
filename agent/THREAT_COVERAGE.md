@@ -1,75 +1,85 @@
-# Threat and vulnerability coverage
+# Threat, identity and vulnerability coverage
 
-The test matrix uses generated packets and fictitious catalog rows. Passing it
-checks implementation behavior; it does not establish real-world precision,
-recall, or detection of every CICIoT/UNSW attack family. Unsupported-case tests
-explicitly preserve known blind spots rather than count those attacks as detected.
+Reviewed at `332f573` (November 15, 2026). Generated packet tests verify behavior,
+not general precision/recall, every CICIoT family, or a device's freedom from malware.
+See [recent verification/gaps](../docs/RECENT_CHANGES.md#verification-and-known-gaps).
 
-| Signal/case | Current result and checks |
+| Evidence | Current integrated response |
 | --- | --- |
-| Fast ARP sweeps | C detects the count threshold; the agent additionally requires at least 8 distinct ARP targets before automatic containment |
-| Repeated gateway resolution | May produce an ARP warning, but does not auto-quarantine based on quantity alone |
-| Host and port SYN scans | Distinct targets counted; supporting warning rather than automatic quarantine |
-| Retransmissions, SYN-ACK, ACK, FIN/RST | Do not inflate distinct outgoing SYN targets |
-| Explicit TCP decoy touch | A single attempt to a configured decoy is eligible, subject to policy; use `--decoy-ip` |
-| Protected devices | Suspicious activity remains visible; automatic restrictions are prevented |
-| Learning, warmup, cooldown, Restore grace | Existing guards are tested with the real C integration and mock enforcement |
-| Volume deviations | Feature-level C baseline tests only; automatic baseline loading remains disabled until byte-interval units are agreed |
-| Slow scans | Can evade the current 10-second window; explicitly a known gap |
-| UDP/SYN floods to one target | No dedicated flood detector connected; explicitly unsupported |
-| ARP spoofing via replies | No binding-consistency detector yet; explicitly unsupported |
-| DNS beacons, payload attacks, malware family classification | Query collection isn't a beacon/exploit classifier; unsupported by current rules |
+| Fast ARP sweep | Rule threshold plus at least eight distinct ARP targets can authorize containment |
+| Repeated gateway resolution | Quantity without multi-host evidence remains a warning |
+| TCP SYN host/port scan | Distinct outgoing IP/port targets; advisory |
+| Trained binary scan score | Minimum signal, adjacent seconds and cooldown gates; advisory `scan_targets` |
+| Explicit decoy SYN | Strong finding; eligible under automatic safeguards |
+| Volume deviation | Explicit calibrated ten-second window baseline; advisory `volume` |
+| New discovery | Inventory/event/identity hints; no compromise verdict |
+| AP departure/return | Presence status only; no threat verdict |
 
-A legitimate inventory tool sweeping many hosts can look like a malicious sweep
-with these features. Configure trusted/protected devices and measure false alarms
-on real normal recordings before relying on automatic containment. The threshold
-of 8 distinct ARP targets is an explicit local heuristic, not a calibrated claim.
+Retransmissions and SYN-ACK/ACK/FIN/RST do not inflate outgoing unique SYN target
+counts. Inbound/outbound captured bytes are counted separately; the trained scan
+model uses outgoing-frame features. The fixed-window routine uses both directions.
 
-## Vulnerability evidence
+## Baselines and risk expiry
 
-`vulnerabilities.py` uses C's score weights but constrains the supplied evidence:
+Calibration is requested locally via `python -m securiot_agent.routine --help`.
+It needs 30 complete clean ten-second windows in learning mode. Restricted,
+signaling/tainted and incomplete windows are excluded. The baseline is frozen
+until recalibration; detection uses `max(std,1024 bytes)` and z >= 4. A volume
+signal does not independently authorize containment. Active behavioral risk
+expires 300 seconds after the latest signal; this does not release restrictions.
 
-- Reported ports get service-review flags, not confirmed exploit claims. A destination
-  port that a device probes is never turned into an open service on that device.
-- HTTP 80/8080 alone doesn't establish an admin interface; admin-port points require
-  explicit `admin_ports` facts, a subset of reported `ports`.
-- Credential/EOL/cloud-only facts are labeled reported or simulated. This build
-  performs no active login attempt, device scan, or firmware verification.
-- Catalog candidates require normalized exact vendor AND product names; loose
-  substring matches don't earn KEV points. Alias/model-family coverage is limited.
-- A name match remains a candidate (+15), never confirmed affected firmware (+30).
-  A firmware/config applicability evaluator still needs to be implemented.
-- Simulated personas retain a simulation label and cannot create confirmed CVEs.
-- Missing facts remain unknown, catalog version/age is exposed, malformed CVE IDs
-  are excluded, and no match is never presented as proof the device is safe.
-- The previous "100% confidence" wording is replaced with behavioral signal strength;
-  the heuristic isn't a calibrated infection probability.
+## Passive identity and service evidence
 
-Review configured facts without network probes:
+OUI/DHCP/hostname/example-MAC hints produce labeled inferred type/vendor data.
+Private/randomized MACs limit vendor lookup; hints are not authenticated identity.
+Observed listening ports come from the device's own SYN-ACK source port, not
+ports it scans. Passive traffic observations do not prove vulnerability or safe
+configuration. Presence does not verify identity, firmware, password or compromise.
+
+Reported facts, inferred observations and simulated personas remain distinct.
+The assessor can flag reported/observed risky services; HTTP 80/8080 alone does
+not prove an admin interface. Admin points require explicit admin-port facts.
+Inferred vendor/type is not promoted to confirmed firmware/credential or catalog
+applicability evidence. Missing facts stay unknown.
+
+Catalog candidates require normalized exact vendor AND product matching. A name
+match is a candidate (+15), not verified affected firmware (+30). Simulated personas
+cannot create a confirmed real CVE. Aliases/cache age/limited catalog coverage
+remain constraints, and no match is not proof of safety. The heuristic behavioral
+strength is not an infection probability.
+
+Grounded Gemini public research reports vendor documentation with sources. It
+must distinguish published firmware/default policy from the device's installed
+firmware/current password; it does not update measured facts, risk or enforcement.
+Research failure, absent identity and provider budget exhaustion are shown as
+unknown/unavailable, not a clean bill of health.
 
 ```bash
 agent/.venv/bin/python -m securiot_agent.vulnerabilities --devices contract/fixtures.json
 ```
 
-The schema of a candidate CVE and its actual applicability are different concerns;
-see [NVD applicability statements](https://nvd.nist.gov/vuln/Vulnerability-Detail-Pages).
-The cache is a subset of known exploited vulnerabilities, not a complete list of
-all possible weaknesses. See [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog).
+This inspects configured/synthetic facts; it sends no device login or exploit.
 
-## Next evidence needed
+## Known limits and acceptance
 
-Evaluate frozen rules/model and preprocessing on independently labeled attack and
-normal captures. Separate capture sessions/devices between tuning and final tests.
-Report attack-episode recall, false alerts per device-hour, false quarantines, and
-latency. Real Pi visibility, Wi-Fi disconnection/restore, actual model transfer,
-and production network/database behavior remain separate tests.
+Slow scans can evade a ten-second window. There is no integrated general malware
+family/payload classifier, dedicated single-target UDP/SYN flood detector,
+ARP-reply binding-consistency detector, DNS beacon/C2 classifier, or QR exploit
+analysis. A legitimate scanner can resemble a malicious sweep. Capture overload,
+missed traffic, changing MACs and inaccurate reported facts reduce reliability.
 
+PR #18 notes repeated ARP alerts/event flooding and resulting capture/upload load.
+The review does not establish that issue as fixed; do not promise one event per
+attack or guaranteed sub-second containment. See the current test failures in
+[RECENT_CHANGES.md](../docs/RECENT_CHANGES.md).
 
-## Arrived-model update
+Evaluate frozen features/rules/model on independently labeled sessions/devices,
+with false alerts per device-hour, episode recall, false quarantines and latency.
+The saved UNSW/synthetic-sweep evaluation is not real Pi attack accuracy. Physical
+Wi-Fi isolation/rejoin and persistent database/provider operation require separate
+checks. Learning mode, explicit protection, manual overrides and Restore grace
+have different semantics described in [LINUX_ENFORCEMENT.md](LINUX_ENFORCEMENT.md).
 
-The trained binary scan model is connected; see [MODEL_HANDOFF.md](MODEL_HANDOFF.md).
-It adds advisory scan-like evidence, not a malware-family classifier. The broad
-matrix still deliberately runs in rules mode so baseline safety/coverage results
-aren't silently changed by artifact updates. `test_trained_model.py` separately
-checks the real artifact and its integration. Unsupported-family gaps above remain;
-the presence of a model is not proof those families are now detected.
+PR #20 adds nl80211 station removal for NetworkManager hotspots. It does not
+provide an AP admission deny list; clients can reassociate before the next
+roughly one-second re-kick. Hardware validation must cover same-SSID forwarding.

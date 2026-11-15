@@ -1,132 +1,150 @@
-# Linux hotspot enforcement and manual dashboard controls
+# Linux hotspot enforcement, discovery and recovery
 
-The Windows laptop must be booted into Linux and host the demo Wi-Fi. The Pi is
-an ordinary Wi-Fi client, not the router. The agent's Linux backend implements
-`block_wan`, `quarantine`, `restore`, and runtime `restore_all`.
+Reviewed at `332f573` on November 15, 2026. Use a Linux laptop or Pi as the routed
+Wi-Fi AP, with a separate uplink. A Pi acting only as an ordinary Wi-Fi client
+cannot enforce the rest of the LAN. See [recent changes/gaps](../docs/RECENT_CHANGES.md).
 
-## Required topology
+## Prepare the router
 
-Use a routed, unbridged AP interface (example `ap0`) and a separate uplink
-(example Ethernet `enp3s0`). Set up hostapd, DHCP, forwarding and internet sharing
-first; this backend does not provision the hotspot, routes, or NAT. Use a Wi-Fi
-adapter with AP support. Linux 5.16+ with nftables supporting netdev egress is
-required; Ubuntu 24.04 or a newer suitable Linux system is a practical target.
-The backend checks the actual rules with `nft -c` before installation.
+Set up AP-capable Wi-Fi, DHCP, forwarding and internet sharing/NAT first. Both
+standalone hostapd and NetworkManager/wpa_supplicant AP control are supported.
+This backend does not provision them. Its current preflight requires an unbridged
+AP/uplink, Linux/root and supported nftables netdev egress (documented target Linux 5.16+). Existing
+flowtables are rejected; hardware/driver bypass and tc redirects need separate
+validation. Keep existing routing/NAT/firewall rules intact.
 
-Use a dedicated, single-BSS hostapd configuration with matching interface/control
-socket and an explicit deny-list policy:
+Example hostapd fragments (complete SSID/WPA/country/channel/driver settings too):
 
 ```ini
-interface=ap0
+interface=wlan0
 ctrl_interface=/run/hostapd
 macaddr_acl=0
 ap_isolate=0
-# Also configure your SSID, driver, country, channel and WPA settings.
 ```
 
-The demo allows phone-to-Pi traffic before quarantine. Do not enable flowtable
-acceleration on this router: it can bypass the forwarding path. The preflight
-rejects existing nftables flowtables and bridged AP/uplink interfaces. External
-network managers, hardware forwarding, tc redirects, and changes to the AP after
-startup need separate validation. Keep internet sharing's existing firewall/NAT
-rules in place; CasaWarden adds only its own restrictions.
-
-## Configuration
+In hostapd mode, matching interface/socket and explicit `macaddr_acl=0` are
+required. `ap_isolate=0` permits pre-quarantine phone-to-Pi demo traffic. Quarantine uses a
+deny list and deauthentication in addition to firewall drops because same-SSID
+traffic may be handled inside the Wi-Fi driver.
 
 Copy `agent/enforcement.example.json` to `/etc/securiot/enforcement.json` and
-replace the interface names, hostapd paths, and controller MAC with actual values.
-At least one controller MAC is mandatory. The backend also protects the router's
-own interface MACs and locally configured protected devices. Configure the same
-controller protection in dashboard Settings so the UI reflects it.
+replace AP/WAN names, hostapd paths and protected controller MACs. At least one
+real controller MAC is mandatory; do not use the example address. Router interface
+MACs are protected as well. Match the same controller protection in dashboard
+Settings so the UI reflects the backend's protection.
 
-Create `/etc/securiot/devices.json` with actual, stable demo MAC/IP bindings:
+Copy `agent/discovery.demo.example.json` to `/etc/securiot/discovery.json`; set
+`interface` to the same AP, actual IPv4 CIDR and optional lease path. The current
+example has `protect_guests=false` and max_devices 20. Set exclusions intentionally.
+Keep these files private/root-owned. Legacy `/etc/securiot` and `/var/lib/securiot`
+paths remain supported; a consistently configured `/etc/casawarden` location also
+works. The backend journal is bound to its enforcement config identity.
+
+### NetworkManager hotspot alternative
+
+For an AP run by NetworkManager/wpa_supplicant without hostapd, use exactly this
+configuration shape instead (replace names/MAC with real values):
 
 ```json
-{"devices":[
-  {"mac":"02:00:00:00:00:20","ip":"10.42.0.20","name":"Demo Pi","simulated":false},
-  {"mac":"02:00:00:00:00:02","ip":"10.42.0.2","name":"Controller","protected":true,"simulated":false}
-]}
+{
+  "ap_interface": "wlan0",
+  "wan_interface": "eth0",
+  "wifi_control": "nl80211",
+  "protected_macs": ["02:00:00:00:00:02"]
+}
 ```
 
-These are examples: replace both MACs/IPs, reserve the addresses, and account for
-Wi-Fi private/randomized MACs. Real enforcement refuses generated persona devices
-and requires explicit `simulated:false`. Unknown devices are not automatically
-registered. Protect the root-owned configuration files against untrusted edits.
+Do not include hostapd path keys in this variant. Preflight requires `iw` to report
+AP mode. Quarantine installs the same nftables drops and removes the station with
+`iw ... station del`; the live loop checks roughly once a second and removes
+quarantined clients that reassociate. **There is no AP admission deny list in this
+mode.** Reassociation and a same-SSID forwarding window may occur before removal;
+validate the actual radio/driver. Restore/panic stops owned re-kicks. Hostapd mode
+retains its deny-list/deauthentication behavior. The remaining commands apply to
+both modes with the appropriate config.
 
-Install agent/C inference dependencies in the Linux virtual environment:
+## Install and start
+
+Install hostapd separately if using its standalone control mode; the
+NetworkManager/nl80211 variant does not require a hostapd service.
 
 ```bash
-sudo apt-get install nftables hostapd iproute2
+sudo apt-get install nftables iproute2 iw
 python3 -m venv agent/.venv
-agent/.venv/bin/python -m pip install -e 'agent[cloud,replay]' -e ./ml -r ml/requirements-model.txt
+agent/.venv/bin/python -m pip install -e 'agent[cloud,replay,discovery]' -e ./ml -r ml/requirements-model.txt
 ```
 
-## Start live capture, real enforcement, and dashboard command polling
-
-Set `AGENT_API_KEY` in the shell to match your existing API configuration without
-putting the key in a command-line argument. Use the API's HTTPS URL, or loopback
-HTTP when the API is on this laptop. Then:
+Set `AGENT_API_KEY` in the shell to match the API without placing it in command
+arguments. Configure the files above, then from the repository root:
 
 ```bash
 export SECURIOT_REAL_ENFORCEMENT=yes
-sudo --preserve-env=AGENT_API_KEY,SECURIOT_REAL_ENFORCEMENT \
-  agent/.venv/bin/python agent/agent.py --live ap0 \
-  --devices /etc/securiot/devices.json \
+export SECURIOT_DISCOVERY_CONFIG=/etc/securiot/discovery.json
+sudo --preserve-env=AGENT_API_KEY,SECURIOT_REAL_ENFORCEMENT,SECURIOT_DISCOVERY_CONFIG \
+  agent/.venv/bin/python agent/agent.py --live wlan0 \
   --enforcement linux --enforcement-config /etc/securiot/enforcement.json \
   --state-dir /var/lib/securiot --arm --connect \
   --api-url https://YOUR-API-HOST/api --model-mode required \
   --decoy-ip 10.42.0.50 --decoy-ip 10.42.0.51
 ```
 
-Add the decoy aliases/listeners separately using LIVE_DECOYS.md. Capture and
-command polling use one runtime writer; capture continues to enqueue while bounded
-HTTP calls run. Queue overflow is reported and means detection coverage was lost.
-`--connect` now works with live capture as well as replay. Omit it for local-only
-automatic enforcement. Replay and simulation cannot select the Linux backend.
+Substitute your interface, URL/subnet and assigned decoy aliases. Loopback HTTP
+is allowed if the API is on this router. Omit `--connect` for local automatic
+operation. Do not pass `--devices`: the current public live CLI rejects it and
+starts from discovery. It also rejects mock enforcement. Offline replay/simulation
+still uses mocks. Existing real restrictions can reload from journals; live
+unrestricted inventory is rediscovered rather than seeded from fixture records.
 
-`--arm` is local permission to act. Dashboard Settings must also enable automatic
-protection (cloud learning mode off). Restarting without `--arm` prevents new
-containment. Existing saved restrictions are reconciled even in learning mode;
-changing learning mode does not release already quarantined devices.
+Capture enqueues on a bounded buffer; processing, discovery, policy and actions
+have one writer. Overload can drop coverage. Successful live sync is scheduled
+at 0.5 seconds, with error backoff up to 30 seconds; presence changes request an
+immediate upload. `iw event`/station checks provide 3-second explicit-leave and
+15-second silent-absence grace after observation. Absence is not a threat finding.
 
-## Manual quarantine / unquarantine
+## Automatic and manual controls
 
-Open a device in the dashboard and select **Quarantine** or **Restore access**.
-No detector finding is required. The authenticated API queues the command; the
-live agent polls every two seconds and acknowledges its actual outcome. The UI
-shows pending until acknowledgement and continues to show the last reported
-status. Failures appear in the acknowledgement/audit outcome. An offline agent
-leaves the request pending; queueing alone never means isolation succeeded.
+`--arm` plus cloud learning mode off permits automatic containment. Every start
+begins learning; protected targets, step toggles, 30-second warmup, 10-second
+cooldown and 60-second Restore grace remain automatic safeguards. Switching
+learning mode does not release saved restrictions.
 
-Manual quarantine bypasses automatic warmup, cooldown and restore grace. Local
-arming, learning mode, protected-device checks and enabled policy steps still
-apply. Restore works while unarmed and establishes at least 60 seconds of grace
-against automatic containment; a subsequent manual quarantine can override that
-grace. Restore all also attempts recovery of known partially applied restrictions.
+Manual Block Internet/Quarantine commands are deliberate overrides: they bypass
+automatic learning/arming and timers, including Restore grace. Explicit controller
+or cloud/manual protection and disabled steps still prevent them. Default guest
+automatic protection is distinct from explicit manual protection. Restore remains
+available for recovery and grants automatic grace; it does not repair the client.
+Warn is informational and does not invoke this backend.
 
-## Enforcement and recovery behavior
+The dashboard uses `/actions?wait=true`: it queues and waits up to ten seconds
+for a sync/ack result, otherwise reports pending. The current direct-loopback
+listener class/router URL is not wired into API/live execution. See
+[Pi control status](../docs/PI_DIRECT_CONTROL.md); no immediate execution SLA is
+established by setting that environment variable.
 
-- WAN blocking drops outbound forwarding and return traffic by MAC for IPv4/IPv6.
-  It leaves local/router access available. Routed traffic must traverse this host.
-- Quarantine filters ingress/egress Ethernet traffic (including ARP and IPv6), adds
-  a hostapd deny entry, disconnects the station if present, and verifies denial
-  plus absence of an associated/authorized station (a historical station record
-  may remain after deauthentication). AP admission control addresses same-SSID
-  traffic that may be forwarded inside the Wi-Fi driver.
-- Restore removes our firewall restriction and our Wi-Fi denial. It permits
-  reconnection; it does not force a client to reconnect or remove infection.
-- Rules replace only `inet securiot_guard` and `netdev securiot_guard`, in one
-  nftables transaction. Ownership comments are checked. Other tables and external
-  AP deny entries are preserved; an external ban cannot be claimed as restored.
-- A durable intent/confirmed journal survives failures/restarts. Partial failures
-  are reported as failures and retain the last confirmed device status plus
-  uncertainty evidence. A failed command may have applied some restrictions:
-  retry Restore, Restore all, or panic. Restart reconciles pending intent before
-  publishing restriction status. Do not reuse replay state for Linux enforcement.
-- A process lock prevents two agents or panic from editing the same state at once.
+## Backend and durable state
 
-For local recovery, **stop the running agent first**, then use the same config and
-state directory:
+- `block_wan`: drops outbound routed and return traffic by MAC for IPv4/IPv6,
+  keeping local/router access. Traffic must traverse the enforcement host.
+- `quarantine`: Ethernet ingress/egress drops, including ARP/IPv6; hostapd deny
+  and disconnect, or nl80211 station removal/re-kick upkeep; verification that no associated/authorized station
+  remains. hostapd may retain an unauthenticated historical record.
+- `restore`: removes owned restrictions/denial and permits client reconnection.
+  It neither forces a client to rejoin nor deletes external administrator bans.
+- `restore_all`: attempts known confirmed and pending partial recovery, reporting
+  failure if not all operations succeed.
+
+Only owned `inet securiot_guard`/`netdev securiot_guard` tables are replaced,
+in one nft transaction after validation. Ownership comments guard against replacing
+another table. Other rules and external AP denies are preserved.
+`enforcement.json` records intent/confirmed effects; partial failure leaves the
+last confirmed status with uncertainty evidence. `cloud.json` freezes delivery
+and ack results; `state.json` and `routine.json` are separate. Discovery/presence
+cache is not an authority to override protected-device configuration. Do not reuse
+simulation state for Linux or run two agents against one directory.
+
+## Local panic
+
+Stop the running agent first (the same state directory is process-locked), then:
 
 ```bash
 sudo agent/.venv/bin/python agent/agent.py --panic --enforcement linux \
@@ -134,33 +152,35 @@ sudo agent/.venv/bin/python agent/agent.py --panic --enforcement linux \
   --state-dir /var/lib/securiot
 ```
 
-Panic clears our tables and owned Wi-Fi deny entries, including pending intents.
-It uses the enforcement journal rather than the devices file and can clear the
-firewall even when the AP/hostapd config has disappeared. If hostapd is
-unavailable, Wi-Fi deny cleanup remains pending and the command reports failure;
-retry when its socket is available. It never flushes the global ruleset. Restart
-without `--arm` while investigating. Keep local keyboard access for initial tests.
-MAC-based containment is a demo mechanism; a client that changes its MAC needs
-fresh identification and is not permanently authenticated by this scheme.
+Panic uses the enforcement journal rather than a devices file. It clears owned
+tables and owned deny/re-kick entries, including pending intents, without flushing global
+firewall state. It can clear tables if the AP/hostapd config disappeared. If the
+hostapd socket is unavailable, Wi-Fi cleanup remains pending and the command
+reports failure; retry after recovering hostapd. Restart without `--arm` while
+investigating automatic behavior; explicit manual controls can still request actions.
+Keep local keyboard access for initial physical tests. MAC restrictions are not
+permanent authentication against a client changing its MAC.
 
-## Tests and physical acceptance
+## Verification and hardware checklist
 
 ```bash
-agent/.venv/bin/python -m pytest agent/tests ml/tests -q
-npm --prefix web test
-npm --prefix web run build
+agent/.venv/bin/python -m pytest agent/tests ml/tests tests -q
 agent/.venv/bin/python agent/tools/smoke_firewall.py
 ```
 
-The Docker lab uses a network-disabled container with child namespaces and real
-nftables packets, including an already-established TCP connection. IPv6 neighbors
-are fixed in this lab to separate filtering from multicast discovery timing. NET_ADMIN/NET_RAW control only its virtual links; SYS_ADMIN and
-its relaxed seccomp profile permit child namespaces. It mounts the repo read-only,
-uses no host networking or ports, and removes the container afterward. hostapd is
-stubbed in this lab: it verifies actual IPv4/IPv6 firewall behavior, not a radio.
+The isolated lab uses a network-disabled Docker container and child namespaces,
+read-only repository mount, no published ports/host network, NET_ADMIN/NET_RAW and
+SYS_ADMIN with a relaxed seccomp profile for namespace creation. It tests real
+IPv4/IPv6 packets and an established TCP connection, protected controller traffic,
+Restore/panic and preservation of another table. IPv6 neighbors are fixed to
+separate filtering from multicast discovery; hostapd is stubbed. The container
+and its namespaces are removed afterward. This documentation review did not rerun
+that hardware-independent lab; historical passes do not validate a radio.
 
-On the physical hotspot, verify Pi internet/local connectivity, WAN-only blocking,
-manual quarantine before any alert, inability to reconnect, unaffected controller,
-Restore/rejoin, automatic restore grace, persistence through agent restart, and
-panic recovery. Check both IPv4 and IPv6, an already open connection, and
-phone-to-Pi traffic. Those hardware properties cannot be proven on this Mac.
+On the real AP check initial peer/WAN access, WAN-only blocking, manual quarantine
+without an alert, failed reassociation, unaffected controller, Restore/rejoin,
+automatic grace, learning/manual distinction, restart intent, and panic. Include
+IPv6, existing connections, phone-to-Pi traffic and capture-overload monitoring.
+PR #18 reports some live presence/ingest checks; PR #20 adds nl80211 support
+and quiet-client listing. Neither is a complete physical acceptance matrix.
+Current local suite failures are in [the review](../docs/RECENT_CHANGES.md#verification-and-known-gaps).

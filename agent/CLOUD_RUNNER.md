@@ -1,119 +1,92 @@
-For live capture with real Linux enforcement and manual dashboard overrides, see
-[LINUX_ENFORCEMENT.md](LINUX_ENFORCEMENT.md). The examples below use offline replay
-and mock enforcement; `--connect` also supports `--live IFACE`.
+# Agent cloud delivery and commands
 
-# Agent cloud loop
+Reviewed at `332f573` (November 15, 2026). [Recent changes](../docs/RECENT_CHANGES.md)
+record PRs #16–20, current tests and integration gaps.
 
-This is an offline packet-replay runner with mock enforcement. It uses C's arrived trained scan model plus
-rules/scorer and B's existing ingest/sync/ack contract. It can upload results,
-process queued Restore commands, and keep polling after replay reaches EOF.
-This replay example uses mock enforcement. The live runner and Linux backend are documented separately; model training remains Worker C's responsibility.
+## Supported sources and server mode
 
-## Setup and run
+`--connect` is supported with replay and live capture. Replay remains local/mock;
+the normally configured API uses `Settings.load(live_only=True)` and rejects
+simulated devices/events with 409, even in memory storage. Use offline replay for
+local detector tests and explicitly isolated non-live test settings for simulated
+HTTP integration. There is no documented environment switch to make the normal
+server accept fixtures.
 
-From the repository root:
+For the real live agent, follow [Linux setup](LINUX_ENFORCEMENT.md): configure
+`SECURIOT_DISCOVERY_CONFIG`, real enforcement, `AGENT_API_KEY` and `--api-url`.
+The live CLI rejects `--devices` and mock enforcement. `--arm` controls automatic
+response; manual commands have separate override semantics.
 
-```bash
-agent/.venv/bin/python -m pip install -r agent/requirements-test.txt
-export SECURIOT_API_URL=http://127.0.0.1:8000
-export AGENT_API_KEY='replace-with-the-key-configured-on-your-api'
-agent/.venv/bin/python agent/agent.py --replay agent/fixtures/arp_scan.pcap --connect --arm
-```
+HTTPS is required outside loopback. Docker's Caddy normally exposes the API at
+`http://localhost/api`; direct host uvicorn uses `http://127.0.0.1:8000`.
+Keys come from the environment, are not command-line arguments, and must match
+the API. `agent/.env.example` is a reference, not an automatically loaded file.
 
-Start B's API separately using that track's instructions and database configuration.
-The runner sends `X-API-Key`. HTTPS is required for remote APIs; plain HTTP is
-accepted only for loopback development. Redirects are not followed. Keys are
-read from the environment, never printed or written to the command journal.
-`agent/.env.example` is a reference, not an automatically executed/loaded file.
+## Execution and delivery
 
-The runner fetches policy before processing packets and polls about every two
-seconds while replaying and after EOF. Once EOF is reached it waits for commands;
-it does not loop/replay the attack automatically. Ctrl-C stops it. `--once`
-processes the capture, performs one final cloud cycle, then exits; incomplete
-cloud work gives a nonzero exit and remains on disk. To start an independent run,
-use a fresh `--state-dir`. Use one process per state directory.
+- Fetch authoritative policy before packet processing. Successful live cloud cycles
+  are scheduled every 0.5 seconds; error backoff is bounded at 30 seconds.
+- Presence transitions request an immediate upload. Unchanged device digest plus
+  unchanged outbox cursor can skip ingest; sync remains a heartbeat.
+- Runtime mutations are single-writer. Capture enqueues on another thread with a
+  bounded buffer; overload/gaps can invalidate traffic coverage/baseline windows.
+- `wire.py` exports current contract fields, including identity/firmware,
+  `snapshot_at`, real/simulation provenance, and offline presentation. Restriction
+  status wins over offline. The live path strips retired simulated pending records.
+- Inferred type/vendor fields rejected by a schema can downgrade to unknown before
+  retry validation. Other invalid data is retained/reported, not silently accepted.
+- Each pending ingest batch is journaled exactly. Accepted responses advance the
+  outbox cursor; UUIDs/ts are immutable on retries. Events remain in the local audit.
 
-`--arm` gives permission for cloud policy to enable mock actions. Without it,
-cloud policy cannot turn off learning mode. Cloud learning mode and locally
-protected MACs remain authoritative safeguards. Per-step ladder toggles are
-honored; the default automatic action is quarantine. The full V5 block+quarantine
-hardware bundle is still a future enforcement integration.
+The API's migration-6 storage upsert compares `snapshot_at` (falling back to
+`last_seen`); last packet time no longer has to change just to publish presence.
+PostgreSQL event ingestion batches UUID checks/inserts to avoid round trips per
+event under the storage lock. These changes reduce API stalls, but are not a
+throughput or containment latency guarantee.
 
-## Delivery and recovery
+## Manual actions
 
-- All local audit events remain in JSONL. Only event kinds supported by the shared
-  ingest contract are exported. Audit-only/unsupported kinds stay local.
-- Conversion maps statuses, timestamps, confidence vocabulary, and anomaly ratios
-  to the shared schema. Every upload is validated before sending. Payloads are
-  explicitly marked with their simulation/enforcement provenance.
-- `cloud.json` freezes each pending payload, including UUIDs and timestamps, before
-  upload. A lost response causes the exact same payload to be retried after restart.
-- A cursor advances only after a valid ingest response. Acknowledged events remain
-  in the local audit file; a failed response never discards them.
-- Each command UUID/content hash is journaled before execution, then its exact ack
-  is saved. Lost acknowledgement responses do not repeat Restore or extend grace.
-- A crash with an unfinished command records an uncertain failure on restart rather
-  than risking repeated action. This is not a claim of transactional exactly-once
-  enforcement. A different command payload reusing an old UUID is rejected.
-- Journals are bound to the API URL. Use another state directory when changing APIs.
-- API errors are bounded by timeouts and retained for retry. This single-threaded
-  replay harness can pause packet-file processing during HTTP calls. Live capture
-  enqueues packets on a separate thread with a bounded queue; processing remains
-  serialized and queue overflow reports incomplete coverage.
+Dashboard JWT requests create command/audit records and use UUID idempotency keys.
+`POST /actions` returns 202 when queued. `?wait=true` waits up to ten seconds and
+can return 200 with a terminal result, or pending after the wait. The browser uses
+a longer request timeout; loss of a response leaves the outcome uncertain.
 
-Successful mock actions update the simulated device snapshot timestamp, allowing
-B's newer-snapshot upsert to display Restore. Real hardware should distinguish
-last observed activity and state revision when that contract is extended.
+CloudLoop fetches current policy, records intent, applies a command with
+`manual=True`, freezes its Ack and retries delivery without repeating the UUID.
+Already-restricted requests can be acknowledged applied. A crash-interrupted
+intent becomes failed/uncertain for review instead of an exactly-once claim.
+Restore does not extend grace on acknowledgement retry.
 
-## Repeat the tests
+Manual containment overrides automatic learning/arming, warmup, cooldown and
+Restore grace. Explicit controller/cloud protection and disabled steps still
+apply. A default guest's automatic protection differs from explicit manual
+protection. Restore/Restore all are recovery operations; switching learning mode
+does not undo existing restrictions. A policy change can cancel queued unsafe
+containment, so receiving a request does not guarantee execution.
 
-```bash
-agent/.venv/bin/python -m pytest agent/tests ml/tests -q
-```
+`DirectControl` is present as an authenticated loopback listener class but is not
+constructed/drained by the current live runner; the API does not dispatch through
+`SECURIOT_ROUTER_URL`. See [Pi controls status](../docs/PI_DIRECT_CONTROL.md).
 
-Cloud tests exercise B's real FastAPI routes/validators with a test database and
-also exercise the actual loopback HTTP client/runner. They verify reconnect,
-response loss, deduplication, commands, acknowledgements, malformed policies,
-authentication, and local safeguards. They do not verify deployed Vultr/Tiger Data.
-B's `/actions` dashboard command-creation endpoint is a separate dependency;
-tests seed its queue directly rather than pretend a dashboard click exists.
+## State, tests and optional adapter factory
 
-## Trained model handoff
-
-The arrived bundle is connected by the built-in adapter. See [MODEL_HANDOFF.md](MODEL_HANDOFF.md) for verified feature/timing compatibility and evaluation limits. `--detector-factory package.module:factory` explicitly
-loads an installed adapter, with no silent fallback if loading fails.
-
-Factory signature:
-
-```python
-def factory(*, clock, protected_macs):
-    return Adapter(...)  # loads C's actual weights + saved preprocessing
-```
-
-The adapter must implement `observe(Observation) -> Finding | None` and
-`assess_device(Device) -> assessment_dict`. It must use the actual training feature
-order/units/windowing and return a deliberate `containment_allowed` decision.
-Assessments need type, eol, cloud_only, risk, band, confidence, and reasons; inspect
-`ml_adapter.py`/`wire.py` for current local conventions. Normalized anomaly evidence
-is 0–1 locally and 0–40 points on the wire. Optional `anomaly` per-MAC state supplies
-that conversion. Training/prediction confidence must be calibrated before it is
-presented as a probability. The built-in adapter now requires the model by default. Use `--model-mode rules`
-for deliberate rule regressions; a custom factory remains an alternative integration interface.
-
-
-## Model + Docker smoke test
-
-The arrived artifact is the default required model. Install the full
-`agent/requirements-test.txt` set, then run:
+Use one process per state directory. `cloud.json` is bound to the API identity;
+use a different directory when changing servers. Never delete it just to retry
+an action. `presence.json`, discovery, routine and enforcement journals have
+separate responsibilities; see [agent overview](README.md).
 
 ```bash
-agent/.venv/bin/python agent/tools/smoke_stack.py
+agent/.venv/bin/python -m pytest agent/tests/test_cloud.py agent/tests/test_linux_enforcement.py agent/tests/test_presence.py -q
 ```
 
-This builds the repository's actual API and React/Caddy images in a separate
-Compose project, uses ephemeral credentials/SQLite memory storage, verifies
-model predictions, upload, authenticated Restore, acknowledgement, and retry
-idempotency, then removes only its own containers/volumes. It does not read the
-configured database credentials into containers or change your saved `.env`.
-Build images/cache remain available for later runs. See MODEL_HANDOFF.md for
-training provenance, cadence compatibility, and remaining hardware tests.
+Current suite failures are listed in [the audit](../docs/RECENT_CHANGES.md#verification-and-known-gaps).
+The historical `tools/smoke_stack.py` sends simulated replay telemetry and must
+be assessed against live-only API settings before reusing it; an earlier pass is
+not a current deployment verification. No external database or provider call is
+needed for the local unit/API tests.
+
+Replay-only `--detector-factory module:factory` remains available with `--connect`.
+The factory accepts `clock` and `protected_macs` and returns `observe(Observation)`
+and `assess_device(Device)` methods. The standard built-in trained adapter is
+documented in [MODEL_HANDOFF.md](MODEL_HANDOFF.md); custom adapters must preserve
+feature units, cadence, provenance and deliberate containment eligibility.

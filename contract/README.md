@@ -1,156 +1,128 @@
 # CasaWarden shared contract v3.2
 
-> **Naming:** CasaWarden was previously called SecurIoT. Existing schema IDs,
-> metadata, and internal identifiers retain the legacy name so current producers,
-> consumers, and stored records remain compatible. The project rename does not
-> change API routes or payload fields. See the
-> [project naming note](../README.md#project-name-and-compatibility).
+Reviewed at `332f573` (November 15, 2026). Existing schema IDs/implementation
+identifiers retain SecurIoT names for compatibility. The v3.2 contract has additive
+fields; current database readiness is migration **6**, not the original milestone
+number. See [deployment](../deploy/README.md) and [recent changes](../docs/RECENT_CHANGES.md).
 
-`schemas.json` is JSON Schema draft 2020-12. Its root validates the ingest batch;
-individual types are under `$defs`. `fixtures.json` is a valid ingest batch for
-offline mocks. No fixture claims real traffic or enforcement. Refresh timestamps
-and generate new event UUIDs for a new replay; retain UUIDs for retries.
+`schemas.json` is JSON Schema draft 2020-12. Its root validates Ingest; types live
+under `$defs`. `fixtures.json` is synthetic test data, not a live-device inventory.
+The normal API rejects simulated ingest and filters simulated dashboard records.
 
-Decisions filling gaps in the plan: lowercase colon-delimited MACs, UTC ISO-8601
-timestamps, confidence `low|medium|high`, risk bands `low` (0–29), `medium` (30–59),
-`high` (60–100), anomaly is points 0–40, reasons are readable strings. Unknown
-boolean factors use null. Optional model/kev preserve camera persona data.
-Devices are keyed by MAC; events and commands by UUID. An ingest retry must not
-duplicate events or replace a newer device snapshot with an older last_seen.
+## Data and provenance
 
-The camera fixture is 75 = possible KEV 15 + EOL 20 + Telnet 15 + default password
-25. This is a shared expected result, not an implementation of Person C's scorer.
-The decoy event is in learning mode: actions_taken is empty. Every fixture device
-is simulated. `devices.yaml` describes intended hardware separately and contains
-explicit placeholder MACs, which must be replaced before DHCP/enforcement use.
+MACs are lowercase colon-delimited strings, device IP is IPv4, timestamps are UTC
+ISO-8601, confidence is `low|medium|high`, anomaly is 0–40 points and risk 0–100.
+Bands are low 0–29, medium 30–59, high 60–100. Unknown boolean facts use null.
+`type` is an open string, not a closed category enum.
 
-## Route agreement (future work unless noted)
+Device includes optional `model`, `kev`, `firmware`, `identification` and
+`snapshot_at`. Identity contains labeled passive inference/observed ports and
+protection metadata; it is not proof of vendor, installed firmware or credentials.
+Firmware/model can remain unknown. Snapshot freshness compares `snapshot_at` or,
+when absent, `last_seen`; a presence/assessment change need not invent a packet.
 
-Caddy supports the plan's bare API routes and `/api/*` (prefix stripped).
-The browser uses `/api`; the agent can use the bare routes. Do not combine both
-prefixes. `/api/docs` describes only implemented routes, not promised features.
+Allowed device status is `normal|wan_blocked|quarantined|offline`. The agent stores
+presence separately and exports offline only for absent normal devices. Quiet associated clients can receive an initial seen time without a captured
+packet. Existing restriction wins over absence. `present` is not a separate shared payload field.
 
-| Route | Request → response | Authorization / milestone |
-|---|---|---|
-| GET /healthz | → status, service, stage | Public; implemented H1–4 |
-| GET /readyz | → {status, database} | Public; implemented H4–8 |
-| POST /auth/login | LoginRequest → TokenResponse | Public; implemented H4–8 |
-| GET /auth/me | → UserResponse | Bearer JWT; implemented H4–8 |
-| POST /ingest | Ingest → {accepted_devices, accepted_events} counts | X-API-Key = AGENT_API_KEY; H8–12 |
-| GET /sync?etag= | → Sync, or 304 if unchanged and no pending commands | X-API-Key; H8–12 |
-| POST /commands/{id}/ack | Ack → 204 | X-API-Key; H8–12 |
-| GET /devices | → DeviceView[] (rules + dashboard-only AI advice) | Bearer JWT |
-| POST /advisor/chat | AdvisorChat → AdvisorAnswer | Bearer JWT; 20 advisor requests/minute/user |
-| GET /advisor/triage | → AdvisorTriage | Bearer JWT; same advisor request limit |
-| GET /events | → EventView[] newest first | Bearer JWT; H8–12 plus H16–20 explanations |
-| POST /actions | Action → Command (202) | Bearer JWT; implemented H12–16 |
-| GET /policy | → Policy | Bearer JWT; implemented H12–16 |
-| PUT /policy | PolicyInput → Policy | Bearer JWT; implemented H12–16 |
-| GET /storage | → StorageStatus | Public; implemented H12–16 |
-| POST /audit/run | empty → {summary: string} | Bearer JWT; H16–20 |
-| GET /audit | → AuditEntry[] newest first | Bearer JWT; H16–20 |
+Event kinds are `scan_arp`, `scan_targets`, `decoy_touch`, `new_domain`, `new_device`
+and `volume`. Collection/support in the schema does not establish a detector for
+every kind. Events retain immutable UUID/ts/content across retries. Reusing a UUID
+with changed content returns 409 and rolls back ingest. Source and evidence label
+simulation; proposed actions are `would_have`, reported actions `actions_taken`.
 
-Event views always include a template explanation. When Gemini is configured,
-the first read schedules Person C's synchronous `explain(event, device)` function
-off the request path and returns `explanation_status: pending`; later reads return
-the validated result as `ready`. Missing credentials, generation failures, queue
-saturation, or expired work return `template`. A failed template is never marked
-ready or attributed to Gemini. Reads never wait for generation.
+Ingest permits up to 1,000 devices and 1,000 events per batch; the current live
+agent/store inventory policy is capped at 20 devices. Device MAC upserts require
+a newer snapshot; exact retries report zero accepted changes. PostgreSQL batches
+UUID checks/inserts and explicitly selects contract device columns.
 
-The explanation pool has two workers, at most four running/queued jobs, and a
-512-entry LRU cache keyed by event ID, sanitized facts, and recorded outcome.
-Successful results expire after one hour; failures retry after 60 seconds.
-The provider socket timeout is six seconds. Work has an eight-second service
-deadline, including queue time; queued calls get only the remaining provider
-budget and expired jobs skip Gemini. Late results are discarded. A stalled call stays
-inside the work bound until it exits, and subsequent reads show the template.
+## Endpoint map
 
-Gemini sees selected numeric counters, ports, flags and device factors, never
-raw packets, raw evidence dictionaries, addresses, names, domains, or banners.
-Output is validated for exact fields, nonempty bounded text, word limits, and
-known unsupported action/remediation claims. The server appends action wording
-from recorded facts. Internet blocking, quarantine, proposed actions, restore,
-and simulation have separate wording. These describe reports at event time;
-they do not claim the device is currently contained, repaired, or infected.
+Paths below are backend paths; Caddy exposes them with `/api` prefixed.
 
-DeviceView extends the ingest Device with `risk_adjusted` and a strict `ai`
-assessment. `risk` and `band` remain authoritative rules values. The displayed
-score is `clamp(risk + ai.delta, 0, 100)`, with delta capped at ±10 and forced to
-zero for low confidence. Malformed responses use actionable rules advice with
-zero adjustment. `ai.status` is `off`, `pending`, `ready`, or `unavailable`;
-`ai.source` distinguishes Gemini from rules. `likely_type` is an explicitly
-labeled guess for unknown/generic devices and never changes Device.type.
-`expected_behavior` is a hypothesis, not measured traffic.
+| Route | Auth / result |
+| --- | --- |
+| `/healthz`, `/readyz`, `/storage` | Public liveness/readiness/storage metadata |
+| `POST /auth/login`, `GET /auth/me` | Existing-account login and Bearer identity |
+| `POST /ingest` | X-API-Key; accepted device/event counts |
+| `GET /sync?etag=...` | X-API-Key; policy plus pending commands, or 304 |
+| `POST /commands/{id}/ack` | X-API-Key; applied/failed Ack, 204; `/ack?command_id=` alias |
+| `GET /dashboard` | JWT; combined devices/events/audit/policy/agent_connected, ETag |
+| `GET /devices`, `GET /events` | JWT; DeviceView/EventView arrays |
+| `GET /policy`, `PUT /policy` | JWT; policy with quoted ETag/optional If-Match |
+| `POST /actions[?wait=true]` | JWT; queue command, optionally wait for terminal report |
+| `POST /devices/{mac}/warn` | JWT; informational audit warning |
+| `GET /audit`, `POST /audit/run` | JWT; history and deterministic summary/three bullets |
+| `POST /advisor/chat`, `GET /advisor/triage` | JWT; bounded advisory-only responses |
+| `POST/GET /advisor/research/{mac}` | JWT; start/poll grounded public-document research |
+| `GET /diagnostics` | JWT; process-local agent timings and Gemini status/usage |
 
-Assessments run in a bounded background queue. Results are cached for 15 minutes
-by sanitized facts (including recent event kinds); failures retry after 60 seconds.
-The cache holds at most 256 entries. Chat and triage share the queue; saturation
-or a request deadline returns 503. Triage considers the 12 highest displayed
-scores, then appends remaining devices by score. Failures return the complete
-rules order. Requests use opaque IDs rather than device addresses at Gemini.
+`GET /events` is newest-first with limit 1–1,000 and offset. `GET /dashboard`
+uses a recent event window and current devices/policy/history; its
+`agent_connected` means this API process saw sync within ten seconds, not that
+an action succeeded. The aggregate/research/diagnostic/wait-result envelopes are
+implemented routes, not all separate named `$defs`; validate component contracts
+where supplied and inspect route models for additive envelopes.
 
-The model receives allowlisted factors, ports, device name/vendor/model, and
-event kinds from up to 1,000 events in the last day. It receives no raw evidence,
-destination lists, MACs, or IPs; addresses embedded in text/questions/history are
-redacted. Strings are untrusted, and user-supplied chat history is not evidence.
-Chat has no tools and cannot change scores, snapshots, commands, or policy.
-AI fields are rejected by ingest and never enter agent sync or enforcement.
+## Commands, overrides and policy
 
-Audit contains four `seeded-demo` rows plus command lifecycle rows. `/actions`
-records `requested`; agent acknowledgement changes the same row to `applied` or
-`failed`. Restore is a queued command and the audit does not claim success until
-the agent acknowledges it. `/audit/run` passes the newest 1000 audit rows to Person
-C's `digest(history)` function. Until that function exists, the route returns 503.
+Actions are `block_wan`, `quarantine`, `restore`, `restore_all`. Every action
+except restore_all requires MAC; restore_all must omit it. UUID Idempotency-Key
+reuses the same queued command for identical content; different content returns
+409. Unknown targets return 404. Live-only controls reject simulated inventory
+and explicitly manually protected controller identity where available.
 
-JWT login and the database schema are implemented. Unknown business routes return
-404 rather than pretend to ingest or enforce. Login accepts JSON username/password,
-returns a bearer access token (60 minutes by default), and /auth/me returns identity.
-Missing/invalid credentials return 401; unavailable storage returns 503. A command
-is pending until acknowledged; issuing it must not imply successful enforcement.
-Repeated acknowledgements should be idempotent. Errors use FastAPI `detail`.
-Sync etag is an opaque policy revision; pending commands must still be delivered
-when the caller already has that revision. Agent-local GET routes are open;
-local actions/policy mutations require localhost or valid JWT as in the plan.
+Default POST /actions returns 202. With `wait=true`, the API waits up to ten
+seconds: a terminal result can return 200 with status/detail, otherwise it returns
+pending. The browser's timeout is longer. Queueing/timeouts alone are not
+containment outcomes. Agent sync/ack remains the supported execution path; the
+prepared loopback direct listener/router URL is not wired into dispatch.
 
-Agent-only feed: POST /feed accepts image/jpeg or image/svg+xml with X-Feed-Token,
-X-Device-Name, X-Frame-Ts (UTC ISO timestamp), X-Frame-Seq (integer), and identifies
-the device by DHCP source IP. GET /feed/{mac} returns image bytes;
-GET /feed/{mac}/meta returns {last_ts: timestamp|null}. Cloud relay is later work.
-Feed tokens and agent keys must never appear in VITE_* variables.
+Manual containment bypasses automatic learning/arming/warmup/cooldown/grace;
+explicit protected targets and disabled steps remain guarded. Restore works
+independently of learning mode. Policy updates can cancel unsafe pending
+containment and cannot recall an already delivered action. Late acknowledgements
+record actual reports. Identical Ack retries succeed; conflicting ones return
+409. Local command journals prevent repeating an already processed UUID.
 
-H8–12 routes are now implemented. Agent routes require X-API-Key; dashboard reads
-require the judge JWT. POST /ingest accepts at most 1000 devices and 1000 events.
-Its counts report inserted events and inserted/newer device snapshots; exact
-retries return zero. Devices upsert by MAC only when last_seen is newer.
-Events deduplicate globally by UUID using a transaction-scoped lock across API
-workers. Reusing a UUID with different content (including ts) returns 409 and
-rolls back the batch. Events remain immutable after first acceptance.
+Sync has an opaque policy etag in JSON and quoted ETag header. Pending commands
+produce 200 even when etag matches; unchanged/no work can return 304. PUT /policy
+replaces values and optional If-Match prevents stale writes (412). Defaults are
+learning mode on, no protected MACs and enabled ladder steps. Memory revisions
+include a generation so agents refetch after storage switches/restarts.
 
-GET /sync returns an opaque policy-revision etag in JSON and a quoted ETag header.
-Pass the JSON value as ?etag=; unchanged policy with no pending commands gives
-304. Pending commands always produce 200, even with a matching etag.
-POST /commands/{id}/ack accepts Ack and returns 204; /ack?command_id={id} is an
-alias. Identical retries succeed; conflicting acknowledgements return 409;
-unknown commands return 404. Acknowledgement records the agent's result without
-claiming cloud-side enforcement. Commands stop appearing in sync after ack.
-GET /devices returns all snapshots ordered by MAC. GET /events returns newest
-first with ?limit=100 (1–1000) and ?offset=0 pagination.
+## Advice, audit and storage boundaries
 
-H12–16: PUT /policy replaces the policy, defaulting omitted fields to learning
-mode ON, an empty protected list, and all ladder steps enabled. If-Match optionally
-uses the quoted ETag from GET /policy; stale writes return 412. Policy revision
-changes only when values change. Memory etags include a per-process generation
-so agents refetch policy after a storage switch/restart.
+EventView adds a template/generated explanation and status. DeviceView adds
+rules risk/band plus `risk_adjusted` and `ai`; snapshot/identity/firmware are valid
+there too. AI delta is display-only, capped at ±10, and zero for low confidence.
+Hypothesized type/behavior is labeled, not measured. Chat has no action tools.
+Public research cites documentation without verifying installed firmware/current
+password or modifying scores. These output-only AI fields are rejected by ingest
+and do not enter agent enforcement.
 
-Actions accept an optional UUID Idempotency-Key header. Reusing it with the same
-payload returns the same command without requeueing; changing the payload returns
-409. Unknown MACs return 404. Containment requires learning mode OFF, an enabled
-ladder step, and an unprotected target. Restore/restore_all remain available.
-Policy changes cancel unsafe pending containment; agents must still guard commands
-already delivered. Late acknowledgements record the actual execution result.
+All Gemini calls share a persistent request budget/cache in SQLite. Default is
+50 attempts/day at UTC boundaries, successful provider cache one day, HTTP 429
+pause 24 hours; storage failure blocks provider calls. Advice uses one-day fact
+caching/five-minute fallback retry. API limits and bounded queues remain separate
+from deployment-wide request accounting. See deployment for state volume/diagnosis.
 
-Storage mode is additive metadata: X-Storage-Mode and X-Demo-Storage are returned
-on every response; GET /storage returns details. Existing array and Sync shapes
-are unchanged. Memory fallback is temporary, starts with learning ON, and stays
-active until an explicit process restart. See deploy/README.md for recovery and
-cold-start judge authentication behavior.
+Audit merges command lifecycle and detection activity, with optional event_id.
+Run Audit returns deterministic `summary` plus three `bullets`; no Gemini call is
+required. Applied is a report, not independent containment verification. Seeded
+and simulator entries remain distinguishable from live activity.
+
+Storage metadata uses X-Storage-Mode/X-Demo-Storage and `/storage`. Auto fallback
+is temporary and latched until process restart; it is not silently merged back.
+Schema 005 adds identity/firmware; 006 removes simulated inventory/cancels its
+pending actions without deleting historical event/audit rows.
+
+## Not implemented by these contracts alone
+
+The `/auth/signup` invitation flow is not registered despite UI/env/test scaffolding.
+Agent-local `:8787` dashboard and POST/GET image feed remain planned interfaces,
+not active cloud/local services. Bluetooth control, power cycling and general
+malware/firmware verification are absent. Legacy feed token/header examples do
+not establish a working feed endpoint. Current build/test gaps are in
+[the review](../docs/RECENT_CHANGES.md#verification-and-known-gaps).

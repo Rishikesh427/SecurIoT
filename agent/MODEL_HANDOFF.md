@@ -1,4 +1,8 @@
-# Arrived trained model
+# Trained model integration
+
+Reviewed at `332f573` on November 15, 2026. The scan artifact/feature adapter did
+not change in the post-9 p.m. review; live discovery, presence, server mode and
+UI did. See [recent changes](../docs/RECENT_CHANGES.md).
 
 The agent now uses `ml/data/scan_model.joblib` in the default replay CLI path.
 The trusted repository bundle contains a calibrated classifier, the feature list,
@@ -24,8 +28,10 @@ The separate `--simulate` walkthrough remains a scripted rule demo.
 For Docker-hosted API/dashboard, run the platform's Compose instructions on a
 machine with Docker available. Run the agent on the host with
 `SECURIOT_API_URL=http://localhost/api` (or the configured loopback port/prefix)
-and the API's AGENT_API_KEY. Then add `--connect` to replay. HTTPS is required
-for non-loopback endpoints. Compose currently hosts the API and Caddy/React;
+and the API's AGENT_API_KEY for live operation. The normal API now rejects
+simulated replay ingest with 409, including in memory mode. Replay HTTP tests
+use isolated non-live Settings; do not upload fixtures to the normal server.
+HTTPS is required for non-loopback endpoints. Compose currently hosts the API and Caddy/React;
 it does not create a Linux router or live-capture agent service.
 
 ## Training/inference compatibility
@@ -56,7 +62,8 @@ Model evidence is a binary `scan_like` warning. For the existing cloud contract 
 is exported as `scan_targets` with explicit model basis/classification evidence;
 it does not claim a malware family or exact attack subtype. These model-only
 warnings remain advisory during transfer testing. Strong decoy/ARP rules can
-still request mock containment through the existing safety checks.
+still request containment on the selected backend through automatic safety
+checks. Manual commands have separate override semantics; see LINUX_ENFORCEMENT.md.
 
 The adjacent-second requirement is stricter than C's evaluation script, which
 shifts consecutive observed rows without requiring adjacent wall-clock seconds.
@@ -65,7 +72,9 @@ policy or hardware response.
 
 ## Evaluation observed during integration
 
-After the teammate's retraining commit, C's `ml/tools/evaluate.py --test-only` produced:
+The earlier November 14 integration recorded these results from
+`ml/tools/evaluate.py --test-only`; this documentation review did not retrain or
+rerun the dataset evaluation:
 
 | Evaluator | Held-out episodes found | Episode recall | False alerts/device-hour | Median detection time |
 | --- | --- | --- | --- | --- |
@@ -80,27 +89,25 @@ The threshold baseline here also differs from the agent's ARP distinct-target an
 containment safeguards. Treat these figures as C's dataset evaluation, not demo
 accuracy or a containment SLA.
 
-## Verified / pending
+## Verification and live operation
 
-Verified: actual artifact loading/predictions; exact shared feature vectors;
-one-second cadence; no two-packet streak; incoming exclusion; fallback failures;
-real-model replay through API login, ingest, real SQLite memory storage, queued
-Restore and acknowledgement. Enforcement remains mocked.
+Current tests exercise artifact loading/predictions, saved feature order and
+cadence, incoming exclusion, model-only advisory behavior and isolated API/SQLite
+round trips. The broader suite has unrelated integration failures documented in
+[the current review](../docs/RECENT_CHANGES.md#verification-and-known-gaps); do not
+reuse an old all-green count as today's validation.
 
-Docker was subsequently installed and the isolated Docker smoke test passed:
-API and React/Caddy images built; frontend assets were served; API health and
-memory-storage mode were verified; the host agent loaded the actual model,
-made model predictions, uploaded detection events, and completed authenticated
-Restore/acknowledgement through the real command queue. Lost ingest/ack responses
-were retried without duplicate events or repeated Restore. The test removed its
-own containers/volumes and used no configured external database.
+The historical `tools/smoke_stack.py` combines replay telemetry with a normal
+API process. Its earlier passing results predate live-only ingest and must not
+be presented as a fresh pass without adjusting/revalidating that isolated harness.
+The normal production/development API rejects simulated source data.
 
-Repeat the isolated test from the repository root:
+The real live CLI requires Linux enforcement/discovery and starts without
+`--devices`; use [LINUX_ENFORCEMENT.md](LINUX_ENFORCEMENT.md). It honors the same
+required/auto/rules model modes. Device identity and presence do not alter trained
+feature units or prove transfer accuracy. PR #18's reported live presence/ingest
+checks are separate from independently labeled Pi attack/normal evaluation.
 
-```bash
-agent/.venv/bin/python agent/tools/smoke_stack.py
-```
-
-This is an HTTP/API/assets test, not browser interaction QA. Live capture/decoys are also verified in an isolated Docker network (see LIVE_DECOYS.md). Physical Pi capture,
-Wi-Fi/firewall behavior, persistent Postgres, public deployment, and independent
-Pi attack/normal recordings still need testing.
+Physical AP visibility, Wi-Fi isolation/rejoin, capture overload, installed model
+versions, persistent deployment and real attack accuracy need their own recorded
+acceptance. Model availability does not imply coverage of every threat family.
