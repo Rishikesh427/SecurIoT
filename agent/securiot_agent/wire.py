@@ -27,7 +27,9 @@ def device_record(device, anomaly=0):
         "cloud_only": score.get("cloud_only"), "anomaly": round(min(1, max(0, anomaly)) * 40),
         "risk": score["risk"], "band": score["band"],
         "confidence": CONFIDENCE[score["confidence"]], "reasons": score["reasons"],
-        "status": {"blocked": "wan_blocked"}.get(device.status, device.status),
+        # A restriction always wins over presence: a quarantined device is expected to be gone.
+        "status": "offline" if device.status == "normal" and not device.present
+                  else {"blocked": "wan_blocked"}.get(device.status, device.status),
     }
 
 

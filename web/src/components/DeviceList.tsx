@@ -30,7 +30,8 @@ export function DeviceList({
   onSelect: (mac: string) => void;
 }) {
   const [view, setView] = useState<View>(savedView);
-  const sorted = [...devices].sort((a, b) => Number(a.protected) - Number(b.protected) || b.risk - a.risk);
+  const offline = (d: DashDevice) => Number(d.status === "offline");
+  const sorted = [...devices].sort((a, b) => offline(a) - offline(b) || Number(a.protected) - Number(b.protected) || b.risk - a.risk);
 
   // Devices that appear after the first load slide in and pulse.
   const known = useRef<Set<string> | null>(null);

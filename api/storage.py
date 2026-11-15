@@ -203,11 +203,14 @@ class Storage:
         self.last_policy = None
 
     def status(self):
-        with self.lock:
-            return {'mode':'memory' if self.using_memory else 'postgres',
-                    'demo_storage':self.using_memory, 'persistent':not self.using_memory,
-                    'badge':'Demo storage' if self.using_memory else 'Tiger Data',
-                    'reason':self.reason, 'recovery':'restart' if self.using_memory else None}
+        # No lock: the response middleware calls this on the event loop for every
+        # request, and waiting here behind a slow database call stalled the whole
+        # server (even /healthz). Reading the current flags is safe without it.
+        memory, reason = self.using_memory, self.reason
+        return {'mode':'memory' if memory else 'postgres',
+                'demo_storage':memory, 'persistent':not memory,
+                'badge':'Demo storage' if memory else 'Tiger Data',
+                'reason':reason, 'recovery':'restart' if memory else None}
 
     def close(self):
         self.memory.close()

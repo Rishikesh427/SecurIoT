@@ -5,7 +5,7 @@ import type { Device, Policy, SecurEvent } from "../types";
 const fixtures = contractFixtures as unknown as { devices: Device[]; events: SecurEvent[] };
 
 export const CAMERA_MAC = fixtures.devices.find((d) => d.type === "camera")!.mac;
-const PROJECTOR_MAC = fixtures.devices.find((d) => d.type === "projector")!.mac;
+export const PROJECTOR_MAC = fixtures.devices.find((d) => d.type === "projector")!.mac;
 
 /** Fixture devices with timestamps refreshed to now. */
 export function fixtureDevices(): Device[] {
