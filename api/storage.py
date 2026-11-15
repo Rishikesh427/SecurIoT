@@ -76,6 +76,15 @@ class MemoryDatabase:
         with self.lock:
             return copy.deepcopy(self.users.get(str(user_id)))
 
+    def create_user(self, username, password_hash):
+        with self.lock:
+            if any(user['username'] == username for user in self.users.values()):
+                raise HTTPException(409, 'Username is already in use')
+            user = {'id': uuid4(), 'username': username, 'password_hash': password_hash,
+                    'role': 'judge', 'active': True}
+            self.users[str(user['id'])] = user
+            return copy.deepcopy(user)
+
     def _rows(self, table):
         # Internal constant table names only.
         return [json.loads(row[0]) for row in self.conn.execute(f'SELECT payload FROM {table}')]
@@ -181,8 +190,8 @@ class MemoryDatabase:
 
 
 class Storage:
-    METHODS = {'audit','ready','user_by_name','user_by_id','ingest','sync','ack','devices','events','get_policy','put_policy','create_command'}
-    WRITES = {'ingest','ack','put_policy','create_command'}
+    METHODS = {'audit','ready','user_by_name','user_by_id','create_user','ingest','sync','ack','devices','events','get_policy','put_policy','create_command'}
+    WRITES = {'create_user','ingest','ack','put_policy','create_command'}
 
     def __init__(self, primary, settings):
         self.primary = primary

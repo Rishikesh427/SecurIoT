@@ -165,7 +165,7 @@ export const mockServer = {
     guard();
     await delay();
     const cmd: Command = { id: uuid(), created_at: iso(), action: req.action, ...(req.mac ? { mac: req.mac } : {}) };
-    audit({ actor: "judge", action: req.action, mac: req.mac, command_id: cmd.id, outcome: "requested" });
+
 
     const targets = req.action === "restore_all" ? state.devices : [device(req.mac ?? "")].filter(Boolean) as Device[];
     if (!targets.length) throw new Error("Unknown device");
@@ -173,18 +173,19 @@ export const mockServer = {
       // Same rules as the API's POST /actions (409s).
       if (state.policy.learning_mode) throw new Error("Turn off learning mode before requesting containment");
       if (state.policy.protected_macs.includes(targets[0].mac)) throw new Error("Device is protected");
+      if (!state.policy.ladder[req.action]) throw new Error("This ladder step is disabled");
     }
 
-    // The agent picks the command up on its next /sync and acks it.
-    setTimeout(() => {
+    // Apply the simulated network restriction before recording its result.
+    {
       for (const d of targets) {
         if (req.action === "quarantine") enforce(d, ["block_wan", "quarantine"]);
         else if (req.action === "block_wan") enforce(d, ["block_wan"]);
         else restore(d);
       }
-      audit({ actor: "agent", action: req.action, mac: req.mac, command_id: cmd.id, outcome: "applied" });
-    }, 400);
-    return cmd;
+      audit({ actor: "simulator", action: req.action, mac: req.mac, command_id: cmd.id, outcome: "applied" });
+    }
+    return { ...cmd, status: "applied", detail: "Simulated network action completed" };
   },
 
   async getAudit(): Promise<AuditEntry[]> {

@@ -10,6 +10,7 @@ import subprocess
 import threading
 import time
 
+from .identify import OUI_AVAILABLE, Fingerprints
 from .models import Device, normalize_mac
 
 
@@ -52,6 +53,10 @@ class DemoDiscovery:
         if self.network.prefixlen < 16:
             raise ValueError('Demo discovery subnet must be /16 or smaller')
         self.iface = iface
+        # With a bridged AP the neighbour table lives on the bridge, not the Wi-Fi port.
+        self.neighbor_iface = config.get('neighbor_interface', iface)
+        if not re.fullmatch(r'[a-zA-Z0-9_.-]{1,15}', str(self.neighbor_iface)):
+            raise ValueError('neighbor_interface is not a valid interface name')
         if config['interface'] != iface:
             raise ValueError('Discovery must use the capture/AP interface')
         self.protect = config.get('protect_guests', True)
@@ -66,6 +71,9 @@ class DemoDiscovery:
         self.limit = int(config.get('max_devices', 128))
         if not len(agent.inventory.devices) <= self.limit <= 1000:
             raise ValueError('max_devices must include known devices and be <= 1000')
+        self.fingerprints = Fingerprints()
+        if not OUI_AVAILABLE:
+            print('Discovery: netaddr is not installed, so vendors cannot be read from MAC addresses (pip install netaddr).')
         self.snapshots = queue.Queue(maxsize=1)
         self.stop = threading.Event()
         self.worker = None
@@ -82,7 +90,16 @@ class DemoDiscovery:
         # approvals from this untrusted discovery cache: use configured policy.
         if self.path.exists():
             for row in json.loads(self.path.read_text()).get('devices', []):
+                try:  # saved hints are untrusted text: re-validated by Fingerprints
+                    self.fingerprints.update(normalize_mac(row['mac']), hostname=row.get('hostname'),
+                        vendor_class=row.get('dhcp_vendor_class'),
+                        ports=row['ports'] if isinstance(row.get('ports'), list) else ())
+                except (KeyError, ValueError, TypeError):
+                    pass
                 self.register(row['mac'], row['ip'], row.get('name'), 'saved_discovery', seen=False)
+        for device in list(self.agent.inventory.devices.values()):
+            if device.risk_facts.get('_demo_discovered'):
+                self._identify(device)
         # Uploads require last_seen, so a device that left before a restart could
         # never be reported offline unless its last packet time survives restarts.
         self.presence_path = agent.storage.directory / 'presence.json'
@@ -121,7 +138,7 @@ class DemoDiscovery:
         while not self.stop.is_set():
             rows = []
             try:
-                result = subprocess.run(['ip', '-j', '-4', 'neigh', 'show', 'dev', self.iface],
+                result = subprocess.run(['ip', '-j', '-4', 'neigh', 'show', 'dev', self.neighbor_iface],
                     capture_output=True, text=True, check=True, timeout=1)
                 for row in json.loads(result.stdout):
                     states = row.get('state', [])
@@ -173,6 +190,8 @@ class DemoDiscovery:
                 or mac == '00:00:00:00:00:00'):
             return
         address = str(address)
+        if name and source == 'dhcp_lease':
+            self.fingerprints.update(mac, hostname=name)   # lease hostname is the best phone/Arduino hint
         known = self.agent.inventory.get(mac)
         # Never let a guest claim the IP of another configured/discovered MAC.
         if any(d.ip == address and d.mac != mac for d in self.agent.inventory.devices.values()):
@@ -181,9 +200,12 @@ class DemoDiscovery:
             if len(self.agent.inventory.devices) >= self.limit:
                 return
             protected = self.protect or (self.cloud is not None and mac in self.cloud.remote_protected)
-            known = Device(mac, address, clean_name(name) if name else 'Guest ' + mac[-8:],
+            facts = self.fingerprints.facts(mac)
+            label = facts['inferred'].get('label')
+            known = Device(mac, address, clean_name(name) if name else clean_name('Guest ' + (label + ' ' if label else '') + mac[-8:]),
                            protected=protected, simulated=self.agent.enforcer.simulated)
             known.risk_facts['_demo_discovered'] = True
+            known.risk_facts.update(facts)
             known.assessment = self.agent.detector.assess_device(known)
             self.agent.inventory.devices[mac] = known
             self.collector.windows[mac] = deque()
@@ -191,10 +213,11 @@ class DemoDiscovery:
                 self.agent.enforcer.allowed.add(mac)
             if self.protect and self.cloud is not None:
                 self.cloud.local_protected.add(mac)
-            self.discovered[mac] = {'mac': mac, 'ip': address, 'name': known.name}
+            self.discovered[mac] = {'mac': mac, 'ip': address, 'name': known.name, **self.fingerprints.saved(mac)}
             self.agent._event('new_device', mac, {'discovery_source': source,
                 'identity_verified': False, 'name_inferred': bool(name),
-                'protected': protected, 'note': 'Discovery does not establish compromise or device type'})
+                'protected': protected, 'note': 'Discovery does not establish compromise or device type',
+                'inferred_type': facts['inferred'].get('type'), 'inferred_vendor': facts['inferred'].get('vendor')})
             self.dirty = True
         elif mac in self.discovered:
             # Preserve configured names and addresses. Only discovered records
@@ -206,6 +229,7 @@ class DemoDiscovery:
                 known.name = clean_name(name)
                 self.dirty = True
             self.discovered[mac].update(ip=known.ip, name=known.name)
+            self._identify(known)
         if seen:
             known.last_seen = self.agent.clock()
             # A packet from the device proves it is back, even before the next station poll.
@@ -239,7 +263,46 @@ class DemoDiscovery:
                 if device.present and now - since >= self.OFFLINE_AFTER:
                     self._set_present(device, False, 'not_associated')
 
+    def learn(self, mac, **hints):
+        """Remember what a device reveals about itself, even before its IP is known (DHCP)."""
+        try:
+            mac = normalize_mac(mac)
+        except (ValueError, TypeError):
+            return
+        if mac in self.excluded or int(mac[:2], 16) & 1 or mac == '00:00:00:00:00:00':
+            return
+        if self.fingerprints.update(mac, **hints):
+            device = self.agent.inventory.get(mac)
+            if device is not None and device.risk_facts.get('_demo_discovered'):
+                self._identify(device)
+
+    def _identify(self, device):
+        """Refresh inferred identity on a discovered device and re-assess it immediately."""
+        facts = self.fingerprints.facts(device.mac)
+        changed = False
+        for key in ('inferred', 'observed_ports'):
+            if device.risk_facts.get(key) != facts[key]:
+                device.risk_facts[key] = facts[key]
+                changed = True
+        label = facts['inferred'].get('label')
+        if (label and device.name.startswith('Guest ') and device.name.endswith(device.mac[-8:])
+                and label not in device.name):
+            device.name = clean_name(f'Guest {label} {device.mac[-8:]}')
+            changed = True
+        record = self.discovered.get(device.mac)
+        if record is not None:
+            before = dict(record)
+            record.update(ip=device.ip, name=device.name, **self.fingerprints.saved(device.mac))
+            self.dirty = self.dirty or record != before
+        if changed:
+            device.assessment = self.agent.detector.assess_device(device)
+            device.snapshot_at = self.agent.clock()
+        return changed
+
     def observe(self, record):
+        if record.dhcp_hostname or record.dhcp_vendor_class or record.listening_port is not None:
+            self.learn(record.source_mac, hostname=record.dhcp_hostname,
+                       vendor_class=record.dhcp_vendor_class, port=record.listening_port)
         # Source only: never register an internet destination as a LAN device.
         self.register(record.source_mac, record.source_ip, None, 'captured_source', seen=True)
 

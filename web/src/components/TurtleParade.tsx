@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Pause, Play } from 'lucide-react';
 import gsap from 'gsap';
 
@@ -11,7 +11,9 @@ const family = [
 ] as const;
 
 function Turtle({ size, shell, skin, marking }: typeof family[number]) {
+  const clip = useId();
   return <svg width={size * 1.4} height={size} viewBox="0 0 70 50" aria-hidden="true" focusable="false">
+    <defs><clipPath id={clip}><path d="M18 34c-1-31 43-34 44 0z" /></clipPath></defs>
     <path d="M60 30l8 4-8 3" fill={skin} />
     <g data-leg style={{transformOrigin:'25px 34px'}}><ellipse cx="25" cy="39" rx="6" ry="8" fill={skin}/></g>
     <g data-leg style={{transformOrigin:'48px 34px'}}><ellipse cx="49" cy="39" rx="6" ry="8" fill={skin}/></g>
@@ -19,7 +21,7 @@ function Turtle({ size, shell, skin, marking }: typeof family[number]) {
     <path d="M5 32q4 3 7 0" fill="none" stroke="#315a31" strokeWidth="1.4" strokeLinecap="round"/>
     <path d="M18 34c-1-31 43-34 44 0z" fill={shell}/>
     <path d="M18 34h44" stroke={skin} strokeWidth="3" strokeLinecap="round"/>
-    <g fill="none" stroke={skin} strokeWidth="1.8" opacity=".8">
+    <g clipPath={`url(#${clip})`} fill="none" stroke={skin} strokeWidth="1.8" opacity=".8">
       {marking==='scutes' && <><path d="M33 12l12-1 8 10-7 10-13-1-7-10z"/><path d="M33 12l-4-6M45 11l5-5M53 21l8 1M46 31l3 3M33 30l-3 4M26 20l-6-2"/></>}
       {marking==='spots' && <><circle cx="31" cy="20" r="4"/><circle cx="47" cy="19" r="4"/><circle cx="40" cy="29" r="3"/></>}
       {marking==='stripe' && <><path d="M27 12q-3 10 3 20M39 7q-3 12 2 26M50 11q-1 10 4 20"/></>}
@@ -49,7 +51,8 @@ export function TurtleParade() {
     const context = gsap.context(() => {
       const walk = gsap.timeline({ paused: pausedRef.current, repeat: -1 });
       walk.fromTo(element, { x: () => container.clientWidth + 8 }, { x: () => -element.offsetWidth - 8, duration: 7, ease: 'none' });
-      const legs = gsap.to('[data-leg]', { rotation: 18, duration: .22, yoyo: true, repeat: -1, stagger: .06, ease: 'sine.inOut', paused: pausedRef.current });
+      gsap.set('[data-leg]', { x: -3 });
+      const legs = gsap.to('[data-leg]', { x: 3, duration: .22, yoyo: true, repeat: -1, stagger: .06, ease: 'sine.inOut', paused: pausedRef.current });
       const bounce = gsap.to('[data-turtle]', { y: -1.5, duration: .32, yoyo: true, repeat: -1, stagger: .09, ease: 'sine.inOut', paused: pausedRef.current });
       animations.current = [walk, legs, bounce];
       const resize = new ResizeObserver(() => { walk.invalidate(); });
@@ -58,7 +61,7 @@ export function TurtleParade() {
     }, container);
     return () => { animations.current = []; context.revert(); };
   }, [reduced]);
-  return <footer className="pointer-events-none fixed inset-x-0 bottom-0 z-20 h-12 overflow-hidden" aria-label="Turtle Mascot Animation">
+  return <footer className="pointer-events-none relative h-16 w-full overflow-hidden" aria-label="Turtle Mascot Animation">
     <div ref={track} className="absolute inset-0" aria-hidden="true">
       <div ref={train} className="absolute bottom-1 left-0 flex w-max items-end gap-3 will-change-transform">
         {family.map((turtle, index) => <span key={index} data-turtle data-age={index===0?'adult':'young'}><Turtle {...turtle}/></span>)}
@@ -67,4 +70,8 @@ export function TurtleParade() {
     {!reduced && <button type="button" aria-label={paused?'Play Turtle Animation':'Pause Turtle Animation'} aria-pressed={paused} onClick={()=>setPaused(value=>!value)}
       className="pointer-events-auto absolute bottom-1 right-2 grid h-10 w-10 place-items-center rounded-full bg-white/90 text-ink hover:bg-fill">{paused?<Play size={16}/>:<Pause size={16}/>}</button>}
   </footer>;
+}
+
+export function TurtleCompanion({ variant = 0 }: { variant?: number }) {
+ return <span className="turtle-companion inline-flex shrink-0" aria-hidden="true"><Turtle {...family[variant % family.length]} /></span>;
 }
