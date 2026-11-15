@@ -100,8 +100,8 @@ class LivePump:
             self.handle(self.packets.get(timeout=wait))
         except queue.Empty:
             pass
-        if self.discovery is not None:
-            self.discovery.tick()
+        if self.discovery is not None and self.discovery.tick():
+            self.next_poll = now  # a device joined or left: upload it right away
         if self.cloud is not None and now >= self.next_poll:
             for error in self.cloud.tick():
                 print(f"Cloud: {error}; pending work retained")
