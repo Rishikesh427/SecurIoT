@@ -120,11 +120,23 @@ def test_live_loop_uploads_immediately_when_presence_changes():
         cloud, discovery = Cloud(), Discovery()
         pump = LivePump(agent, collector, cloud, discovery=discovery)
         pump.step(100.0, wait=0)
-        pump.step(100.5, wait=0)
-        assert cloud.ticks == 1, "normally one cloud cycle per 2 seconds"
+        pump.step(100.2, wait=0)
+        assert cloud.ticks == 1, "the cloud cycle waits for its next slot"
         discovery.result = True
-        pump.step(100.6, wait=0)
+        pump.step(100.3, wait=0)
         assert cloud.ticks == 2
+
+
+def test_quiet_associated_device_is_uploaded_without_sending_a_packet():
+    with tempfile.TemporaryDirectory() as directory:
+        clock = DemoClock(1000)
+        agent, discovery = setup(directory, clock)
+        discovery.register("02:00:00:00:00:88", "10.42.0.88", None, "neighbor_cache")
+        phone = agent.inventory.get("02:00:00:00:00:88")
+        assert device_record(phone) is None, "found in the neighbor table only: no last_seen yet"
+        assert poll(discovery, {phone.mac}) is True, "listing it should upload right away"
+        record = device_record(phone)
+        assert record is not None and record["status"] == "normal"
 
 
 def test_quarantine_is_reported_over_presence():
