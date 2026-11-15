@@ -42,6 +42,10 @@ def prepare_inventory(inventory, state_dir, simulated):
 
 
 class DemoDiscovery:
+    # A station must stay unassociated this long before it is shown offline, so a
+    # quick Wi-Fi reconnect or roam does not flicker the dashboard.
+    OFFLINE_AFTER = 15
+
     def __init__(self, config, agent, collector, cloud, iface):
         self.agent, self.collector, self.cloud = agent, collector, cloud
         self.network = ipaddress.IPv4Network(config['cidr'])
@@ -72,11 +76,42 @@ class DemoDiscovery:
                 self.discovered[device.mac] = {'mac': device.mac, 'ip': device.ip, 'name': device.name}
         self.dirty = False
         self.last_save = 0
+        self.absent_since = {}
+        self.station_error_shown = False
         # Restore discovery metadata before CloudLoop's next upload. Never restore
         # approvals from this untrusted discovery cache: use configured policy.
         if self.path.exists():
             for row in json.loads(self.path.read_text()).get('devices', []):
                 self.register(row['mac'], row['ip'], row.get('name'), 'saved_discovery', seen=False)
+        # Uploads require last_seen, so a device that left before a restart could
+        # never be reported offline unless its last packet time survives restarts.
+        self.presence_path = agent.storage.directory / 'presence.json'
+        self.presence_saved = 0
+        self._restore_last_seen()
+
+    def _restore_last_seen(self):
+        saved = {}
+        if self.presence_path.exists():
+            try:
+                saved = json.loads(self.presence_path.read_text()).get('last_seen', {})
+            except (OSError, ValueError):
+                saved = {}
+        legacy = self.path.stat().st_mtime if self.path.exists() else None
+        for device in self.agent.inventory.devices.values():
+            if device.last_seen is not None:
+                continue
+            if isinstance(saved.get(device.mac), (int, float)):
+                device.last_seen = float(saved[device.mac])
+            elif legacy is not None and device.mac in self.discovered:
+                # Saved before last-seen times were kept: the discovery file's
+                # last write is the best available estimate.
+                device.last_seen = legacy
+
+    def _save_presence(self):
+        from .cloud_loop import atomic_json
+        atomic_json(self.presence_path, {'version': 1, 'last_seen': {
+            d.mac: d.last_seen for d in self.agent.inventory.devices.values() if d.last_seen is not None}})
+        self.presence_saved = time.monotonic()
 
     def start(self):
         self.worker = threading.Thread(target=self._poll, daemon=True, name='demo-discovery')
@@ -108,10 +143,23 @@ class DemoDiscovery:
                 # Surface misconfiguration without stopping local detection.
                 print('Discovery poll incomplete:', type(error).__name__, str(error)[:160])
             try:
-                self.snapshots.put_nowait(rows)
+                self.snapshots.put_nowait((rows, self._stations()))
             except queue.Full:
                 pass
             self.stop.wait(2)
+
+    def _stations(self):
+        """Currently associated Wi-Fi clients, or None when presence is unknown."""
+        try:
+            result = subprocess.run(['iw', 'dev', self.iface, 'station', 'dump'],
+                capture_output=True, text=True, check=True, timeout=1)
+            return {normalize_mac(m) for m in re.findall(r'^Station\s+([0-9a-fA-F:]{17})', result.stdout, re.M)}
+        except (OSError, subprocess.SubprocessError, ValueError) as error:
+            # Unknown presence never marks devices offline; report it once.
+            if not self.station_error_shown:
+                print('Presence unavailable; devices will not be marked offline:', type(error).__name__, str(error)[:160])
+                self.station_error_shown = True
+            return None
 
     def register(self, mac, address, name, source, *, seen=False):
         try:
@@ -160,6 +208,36 @@ class DemoDiscovery:
             self.discovered[mac].update(ip=known.ip, name=known.name)
         if seen:
             known.last_seen = self.agent.clock()
+            # A packet from the device proves it is back, even before the next station poll.
+            self.absent_since.pop(mac, None)
+            if not known.present:
+                self._set_present(known, True, 'captured_source')
+
+    def _set_present(self, device, present, source):
+        device.present = present
+        # The API keeps the newest snapshot, so presence changes need a newer
+        # snapshot_at. last_seen stays the last packet time.
+        now = self.agent.clock()
+        device.snapshot_at = max(now, max(device.snapshot_at or 0, device.last_seen or 0) + 0.000001)
+        self.agent._event('device_online' if present else 'device_offline', device.mac,
+            {'presence_source': source, 'note': 'Wi-Fi association change; not evidence of compromise'})
+
+    def _presence(self, stations):
+        now = self.agent.clock()
+        for device in self.agent.inventory.devices.values():
+            try:
+                if ipaddress.ip_address(device.ip) not in self.network:
+                    continue  # e.g. the management Mac on the cable: not a Wi-Fi client
+            except ValueError:
+                continue
+            if device.mac in stations:
+                self.absent_since.pop(device.mac, None)
+                if not device.present:
+                    self._set_present(device, True, 'associated')
+            else:
+                since = self.absent_since.setdefault(device.mac, now)
+                if device.present and now - since >= self.OFFLINE_AFTER:
+                    self._set_present(device, False, 'not_associated')
 
     def observe(self, record):
         # Source only: never register an internet destination as a LAN device.
@@ -167,20 +245,26 @@ class DemoDiscovery:
 
     def tick(self):
         try:
-            rows = self.snapshots.get_nowait()
+            rows, stations = self.snapshots.get_nowait()
         except queue.Empty:
-            rows = []
+            rows, stations = [], None
         for mac, address, name, source in rows:
             self.register(mac, address, name, source)
+        if stations is not None:
+            self._presence(stations)
         if self.dirty and time.monotonic() - self.last_save >= 2:
             from .cloud_loop import atomic_json
             atomic_json(self.path, {'version': 1, 'devices': list(self.discovered.values())})
             self.dirty = False
             self.last_save = time.monotonic()
+        # last_seen changes on every packet; a 30-second save keeps SD card writes low.
+        if time.monotonic() - self.presence_saved >= 30:
+            self._save_presence()
 
     def close(self):
         self.stop.set()
         if self.worker:
             self.worker.join(timeout=2)
         self.last_save = 0
+        self.presence_saved = 0
         self.tick()

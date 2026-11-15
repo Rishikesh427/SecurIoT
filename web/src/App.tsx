@@ -9,6 +9,7 @@ import { ActivityView } from "./components/ActivityView";
 import { DeviceDetail } from "./components/DeviceDetail";
 import { Login } from "./components/Login";
 import { HomeMap } from "./components/HomeMap";
+import { OlderDevices } from "./components/OlderDevices";
 import { Heatmap } from "./components/Heatmap";
 import { SettingsToggle, SoundToggle, ThemeToggle, useTheme } from "./components/ThemeToggle";
 import { Logo } from "./components/Logo";
@@ -287,6 +288,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
             {tab === "heatmap" && <div className="animate-rise-in space-y-10">
               <Heatmap devices={devices} events={events} now={now} />
               <section><ActivityExplorer events={events} devices={devices} onSelect={setSelected} /></section>
+              <OlderDevices devices={devices} now={now} onSelect={setSelected} />
               <ActivityView devices={devices} entries={audit} onAction={act} canAct={canAct && !offline} canRunAudit={canRunAudit && !offline} />
             </div>}
             {tab === "overview" && <div className="animate-rise-in space-y-6"><h1 className="t-head">Prevention</h1><AttentionList issues={issues} onFix={setFixing} /></div>}
@@ -308,7 +310,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
         </div>
       </Modal>}
       <TurtleParade />
-      {USE_MOCK && (tab === "map" || tab === "overview") && <DemoControls />}
+      {USE_MOCK && <DemoControls />}
 
       {fixing && (
         <FixSheet
@@ -362,10 +364,11 @@ function DemoControls() {
   const [offline, setOffline] = useState(mockServer.isOffline());
   const [running, setRunning] = useState(false);
   const [joined, setJoined] = useState(mockServer.guestJoined());
+  const [away, setAway] = useState(mockServer.deviceAway());
   usePoll(() => setRunning(mockServer.attackRunning()), 300);
 
   return (
-    <div className="fixed bottom-16 left-6 z-30 flex items-center gap-1.5 rounded-full bg-white/80 p-1.5 pl-4 shadow-[0_10px_40px_rgba(0,0,0,0.12)] ring-1 ring-hairline backdrop-blur-xl">
+    <div className="fixed bottom-16 left-6 z-30 flex max-w-[calc(100vw-48px)] items-center gap-1.5 overflow-x-auto whitespace-nowrap rounded-full [&>*]:shrink-0 bg-white/80 p-1.5 pl-4 shadow-[0_10px_40px_rgba(0,0,0,0.12)] ring-1 ring-hairline backdrop-blur-xl">
       <span className="pr-1.5 text-[16px] font-semibold uppercase tracking-wide text-ink-3">Demo</span>
       <Button
         variant="primary"
@@ -388,6 +391,15 @@ function DemoControls() {
         }}
       >
         Device joins
+      </Button>
+      <Button
+        className="h-8"
+        onClick={() => {
+          mockServer.toggleDeviceAway();
+          setAway(mockServer.deviceAway());
+        }}
+      >
+        {away ? "Device returns" : "Device leaves"}
       </Button>
       <Button
         className="h-8"
